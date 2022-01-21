@@ -1,26 +1,25 @@
 //
 //  APIKeyReaderTest.swift
-//  
+//
 //
 //  Created by Kraig Spear on 10/30/21.
 //
 
-import XCTest
-@testable import SpearFoundation
 @testable import APIKeyReader
+@testable import SpearFoundation
+import XCTest
 
 final class APIKeyReaderTest: XCTestCase {
-
     private var defaultsMock: UserDefaultsMock!
     private var apiKeyCloudKitMock: APIKeyCloudKitMock!
-    
+
     private var subjectUnderTest: APIKeyReader!
 
     override func setUp() async throws {
         defaultsMock = UserDefaultsMock()
         apiKeyCloudKitMock = APIKeyCloudKitMock()
         subjectUnderTest = APIKeyReader(userDefaults: defaultsMock,
-                                    apiKeyCloudKit: apiKeyCloudKitMock)
+                                        apiKeyCloudKit: apiKeyCloudKitMock)
     }
 
     /**
@@ -28,7 +27,6 @@ final class APIKeyReaderTest: XCTestCase {
      2. We do not want to retrieve the key from CloudKit if it does exist in Defaults
      */
     func testWhenKeyIsInDefaultsThenDefaultsIsUsed() async {
-
         let expectedKey = "CD933D39-F0DB-426D-8EC4-9CCC379C05F5"
         defaultsMock.whenStringForKey(key: APIKeyName.openWeatherMap.rawValue,
                                       value: expectedKey)
@@ -46,7 +44,6 @@ final class APIKeyReaderTest: XCTestCase {
      Key was retrieved from CloudKit
      */
     func testWhenKeyIsNotInDefaultsKeyIsRetrievedFromCloudKit() async {
-
         let expectedKey = "D848F0E6-820E-46AD-A361-255CF1954843"
         apiKeyCloudKitMock.whenAPIKeyWithName(key: .openWeatherMap, value: expectedKey)
 
@@ -59,7 +56,6 @@ final class APIKeyReaderTest: XCTestCase {
     }
 
     func testKeyIsRefreshedWhenUserInfoIsFromCKSubscription() async {
-
         let expectedKey = "C38CC437-5ACD-4CF9-B1E2-B21DFA34212D"
 
         apiKeyCloudKitMock.whenFetchNewKeyReturnsKey(key: expectedKey,

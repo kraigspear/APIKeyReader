@@ -1,12 +1,12 @@
 //
 //  APIKeyCloudKit.swift
-//  
+//
 //
 //  Created by Kraig Spear on 10/27/21.
 //
 
-import Foundation
 import CloudKit
+import Foundation
 import os
 
 /**
@@ -26,9 +26,9 @@ public enum FetchKeyError: Error {
 /// Name of fields in the Keys table
 private enum KeyField: String {
     /// Name of the API Key
-    case name = "name"
+    case name
     /// API key value
-    case key = "key"
+    case key
 
     /**
      Extract the value of the key from a CKRecord
@@ -37,7 +37,7 @@ private enum KeyField: String {
      */
     func extract(from record: CKRecord) throws -> String {
         let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
-        let fieldName = self.rawValue
+        let fieldName = rawValue
         if let value = record[fieldName] as? String {
             log.debug("Field named: \(fieldName) found value of: \(value)")
             return value
@@ -75,13 +75,13 @@ public protocol APIKeyCloudKitType {
 }
 
 public final class APIKeyCloudKit: APIKeyCloudKitType {
-
     private let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
     private let recordType = "Keys"
 
     public init() {}
 
-    //MARK: - APIKeyCloudKitType
+    // MARK: - APIKeyCloudKitType
+
     /**
      Fetches an API Key from CloudKit
      - parameter named: Name of the key to fetch from CloudKit
@@ -89,11 +89,10 @@ public final class APIKeyCloudKit: APIKeyCloudKitType {
      - throws FetchKeyError.cloudKitError: If CloudKit throws an error
      */
     public func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey {
-
         log.debug("Fetching from CloudKit Key: \(apiKeyName)")
 
         func performQueryReturningFirstResult() async throws -> CKRecord {
-            let query = self.queryForKey(apiKeyName)
+            let query = queryForKey(apiKeyName)
             log.debug("Performing query \(query)")
             let firstMatchedResult = try await database.records(matching: query).matchResults.first?.1
             log.debug("Finished query \(query)")
@@ -190,7 +189,8 @@ public final class APIKeyCloudKit: APIKeyCloudKitType {
         return (name: keyName, key: keyValue)
     }
 
-    //MARK: - Private
+    // MARK: - Private
+
     private func queryForKey(_ apiKeyName: APIKeyName) -> CKQuery {
         CKQuery(recordType: recordType, predicate: predicateForKey(apiKeyName))
     }

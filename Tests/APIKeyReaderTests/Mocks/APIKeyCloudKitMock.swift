@@ -1,16 +1,15 @@
 //
 //  APIKeyCloudKitMock.swift
-//  
+//
 //
 //  Created by Kraig Spear on 10/30/21.
 //
 
-import Foundation
-import CloudKit
 @testable import APIKeyReader
+import CloudKit
+import Foundation
 
 final class APIKeyCloudKitMock: APIKeyCloudKitType {
-
     private var apiKeyValues: [APIKeyName: APIKey] = [:]
 
     func whenAPIKeyWithName(key: APIKeyName, value: APIKey) {
@@ -25,7 +24,7 @@ final class APIKeyCloudKitMock: APIKeyCloudKitType {
     }
 
     var subscriptionIDValue: CKSubscription.ID!
-    func subscribeToCloudKitChanges(apiKeyName: APIKeyName) async throws -> CKSubscription.ID {
+    func subscribeToCloudKitChanges(apiKeyName _: APIKeyName) async throws -> CKSubscription.ID {
         subscriptionIDValue
     }
 
@@ -37,7 +36,7 @@ final class APIKeyCloudKitMock: APIKeyCloudKitType {
         fetchNewKeyName = named
     }
 
-    func fetchNewKey(userInfo: [AnyHashable : Any]) async throws -> (name: String, key: String) {
+    func fetchNewKey(userInfo _: [AnyHashable: Any]) async throws -> (name: String, key: String) {
         (name: fetchNewKeyName, key: fetchNewKeyKey)
     }
 }

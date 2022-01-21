@@ -5,12 +5,12 @@
 //  Created by Kraig Spear on 10/18/20.
 //
 
-import Foundation
 import Combine
+import Foundation
 import os
 import SpearFoundation
 
-private struct Log {
+private enum Log {
     static let logger = os.Logger(subsystem: "com.spearware.foundation", category: "🔑APIKey")
 }
 
@@ -21,7 +21,7 @@ public enum APIKeyName: String, CustomStringConvertible {
     /// Key used with openWeatherMap
     case openWeatherMap = "api.openweathermap.org"
     public var description: String {
-        self.rawValue
+        rawValue
     }
 
     /**
@@ -29,7 +29,7 @@ public enum APIKeyName: String, CustomStringConvertible {
      - returns: Key if exist or nil
      */
     func load(from defaults: UserDefaultsType) -> String? {
-        defaults.string(forKey: self.rawValue)
+        defaults.string(forKey: rawValue)
     }
 
     /**
@@ -38,7 +38,7 @@ public enum APIKeyName: String, CustomStringConvertible {
      - parameter value: Value to save
      */
     func save(to defaults: UserDefaultsType, value: String?) {
-        defaults.set(value, forKey: self.rawValue)
+        defaults.set(value, forKey: rawValue)
     }
 }
 
@@ -80,11 +80,14 @@ public protocol APIKeyReadable {
  ```
  */
 public actor APIKeyReader: APIKeyReadable {
-
     let log = Log.logger
 
     private let userDefaults: UserDefaultsType
     private let apiKeyCloudKit: APIKeyCloudKitType
+
+    /// Default shared instance.
+    /// Having one instance can help if the key is being refreshed and accessed close to the same time
+    public static let shared: APIKeyReadable = APIKeyReader()
 
     public init(userDefaults: UserDefaultsType = UserDefaults.standard,
                 apiKeyCloudKit: APIKeyCloudKitType = APIKeyCloudKit()) {
@@ -111,7 +114,6 @@ public actor APIKeyReader: APIKeyReadable {
      */
     public func apiKey(named apiKeyName: APIKeyName,
                        useCachedKey: Bool = true) async throws -> String {
-
         let log = self.log
 
         log.debug("Fetching APIKey: \(apiKeyName)")
@@ -138,7 +140,6 @@ public actor APIKeyReader: APIKeyReadable {
 
         // 2.
         func checkExistingKeyTask() async throws -> String? {
-
             // 1. If there is an existing key, meaning has a task been started to fetch this key
             //   CloudKit yet?
             //
@@ -153,7 +154,7 @@ public actor APIKeyReader: APIKeyReadable {
 
             // 2.
             switch existingKey {
-            case .inProgress(let task):
+            case let .inProgress(task):
                 log.debug("In progress, awaiting key: \(apiKeyName)")
                 // 2a.
                 let fetchedAPIKey = try await task.value
@@ -162,7 +163,7 @@ public actor APIKeyReader: APIKeyReadable {
                 do {
                     let subscriptionID = try await apiKeyCloudKit.subscribeToCloudKitChanges(apiKeyName: apiKeyName)
                     log.debug("Success subscribing to CloudKit changes")
-                    //2b.
+                    // 2b.
                     subscriptionKey = subscriptionID
                 } catch {
                     subscriptionKey = nil
@@ -171,7 +172,7 @@ public actor APIKeyReader: APIKeyReadable {
 
                 log.debug("Finished, awaiting key: \(fetchedAPIKey)")
                 return fetchedAPIKey
-            case .finished(let apiKey):
+            case let .finished(apiKey):
                 // 3.
                 log.debug("Key is ready, checking freshness key: \(apiKey)")
                 return apiKey
@@ -185,7 +186,6 @@ public actor APIKeyReader: APIKeyReadable {
 
         // 4.
         func startFetchTask() async throws -> String {
-
             // 1. New task created
             // 2. Task is stored in keys, so it's state can be checked when another thread
             //    enters this function
@@ -230,7 +230,6 @@ public actor APIKeyReader: APIKeyReadable {
      - parameter userInfo: Dictionary with information about the push notification. Passed directly from didReceiveRemoteNotification
      */
     public func refreshKey(userInfo: [AnyHashable: Any]) async throws {
-
         log.debug("refreshKey: \(userInfo)")
 
         let newKey = try await apiKeyCloudKit.fetchNewKey(userInfo: userInfo)
@@ -246,6 +245,7 @@ public actor APIKeyReader: APIKeyReadable {
     }
 
     // MARK: - APIKeyFetchState
+
     /**
      The state of any task fetching a Key
      */
@@ -268,7 +268,7 @@ public actor APIKeyReader: APIKeyReadable {
     /// Stores the fetch state for key fetches
     private var keyFetchState: [APIKeyName: APIKeyFetchState] = [:]
 
-    //MARK: - Defaults
+    // MARK: - Defaults
 
     private var subscriptionKey: String? {
         get { userDefaults.string(forKey: #function) }

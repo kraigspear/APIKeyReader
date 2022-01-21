@@ -1,6 +1,6 @@
 //
 //  UserDefaultsMock.swift
-//  
+//
 //
 //  Created by Kraig Spear on 10/30/21.
 //
@@ -9,26 +9,25 @@ import Foundation
 @testable import SpearFoundation
 
 final class UserDefaultsMock: UserDefaultsType {
-
     init() {}
 
     var objectForKey: Any?
-    func object(forKey defaultName: String) -> Any? {
+    func object(forKey _: String) -> Any? {
         objectForKey
     }
 
     var urlForKey: URL?
-    func url(forKey: String) -> URL? {
+    func url(forKey _: String) -> URL? {
         urlForKey
     }
 
     var arrayForKey: [Any]?
-    func array(forKey: String) -> [Any]? {
+    func array(forKey _: String) -> [Any]? {
         arrayForKey
     }
 
-    var dictionaryForKey: [String : Any]?
-    func dictionary(forKey: String) -> [String : Any]? {
+    var dictionaryForKey: [String: Any]?
+    func dictionary(forKey _: String) -> [String: Any]? {
         dictionaryForKey
     }
 
@@ -42,37 +41,37 @@ final class UserDefaultsMock: UserDefaultsType {
     }
 
     var stringArrayForKey: [String]?
-    func stringArray(forKey: String) -> [String]? {
+    func stringArray(forKey _: String) -> [String]? {
         stringArrayForKey
     }
 
     var dataForKey: Data?
-    func data(forKey: String) -> Data? {
+    func data(forKey _: String) -> Data? {
         dataForKey
     }
 
     var boolForKey: Bool!
-    func bool(forKey: String) -> Bool {
+    func bool(forKey _: String) -> Bool {
         boolForKey
     }
 
     var integerForKey: Int!
-    func integer(forKey: String) -> Int {
+    func integer(forKey _: String) -> Int {
         integerForKey
     }
 
     var floatForKey: Float!
-    func float(forKey: String) -> Float {
+    func float(forKey _: String) -> Float {
         floatForKey
     }
 
     var doubleForKey: Double!
-    func double(forKey: String) -> Double {
+    func double(forKey _: String) -> Double {
         doubleForKey
     }
 
-    var dictionaryRepresentationValue: [String : Any]!
-    func dictionaryRepresentation() -> [String : Any] {
+    var dictionaryRepresentationValue: [String: Any]!
+    func dictionaryRepresentation() -> [String: Any] {
         dictionaryRepresentationValue
     }
 
@@ -81,35 +80,21 @@ final class UserDefaultsMock: UserDefaultsType {
         let name: String
     }
 
-    private (set) var lastSetAny: [LastSetAny] = []
+    private(set) var lastSetAny: [LastSetAny] = []
 
     func set(_ value: Any?, forKey defaultName: String) {
         lastSetAny.append(LastSetAny(value: value, name: defaultName))
     }
 
-    func set(_ value: Float, forKey: String) {
+    func set(_: Float, forKey _: String) {}
 
-    }
+    func set(_: Double, forKey _: String) {}
 
-    func set(_ value: Double, forKey: String) {
+    func set(_: Int, forKey _: String) {}
 
-    }
+    func set(_: Bool, forKey _: String) {}
 
-    func set(_ value: Int, forKey: String) {
+    func set(_: URL?, forKey _: String) {}
 
-    }
-
-    func set(_ value: Bool, forKey: String) {
-
-    }
-
-    func set(_ value: URL?, forKey: String) {
-
-    }
-
-    func removeObject(forKey: String) {
-
-    }
-
-
+    func removeObject(forKey _: String) {}
 }
