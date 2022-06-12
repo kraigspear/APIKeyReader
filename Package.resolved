@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "spearfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kraigspear/Spearfoundation.git",
+      "state" : {
+        "branch" : "iOS16",
+        "revision" : "2574c67da3055d200ae6239424bfbdaabe62e32e"
+      }
+    }
+  ],
+  "version" : 2
+}
