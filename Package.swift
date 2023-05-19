@@ -17,7 +17,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/kraigspear/Spearfoundation.git", branch: "iOS16")
+        .package(url: "https://github.com/kraigspear/Spearfoundation.git", .exact("2.0.1"))
     ],
     targets: [
         // Targets are the basic building blocks of a package. A target can define a module or a test suite.
