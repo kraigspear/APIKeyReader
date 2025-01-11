@@ -1,4 +1,5 @@
 {
+  "originHash" : "8637cb7fceb2feab340d175ba4f6693cd7ead62d752b8172681f83f53f28bcbd",
   "pins" : [
     {
       "identity" : "spearfoundation",
@@ -10,5 +11,5 @@
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

@@ -47,38 +47,14 @@ private enum KeyField: String {
     }
 }
 
-public protocol APIKeyCloudKitType {
-    /**
-     Fetches an API Key from CloudKit
-     - parameter named: Name of the key to fetch from CloudKit
-     - returns: API key for a given name
-     - throws FetchKeyError.cloudKitError: If CloudKit throws an error
-     */
-    func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey
-    /**
-     Subscribe to changes from CloudKit.
-     If the key changes, we want to be informed without having to Query CloudKit each time
-     - parameter apiKeyName: The name of the key to subscribe to changes
-     - returns: The `CKSubscription.ID` of the subscription on success
-     - throws: Exception from CloudKit if the subscription can't be created
-     */
-    func subscribeToCloudKitChanges(apiKeyName: APIKeyName) async throws -> CKSubscription.ID
-
-    /**
-     Called from AppDelegate when a silent CloudKit push is received to trigger
-     getting a refreshed API Key
-
-     - parameter userInfo: Info about the push from CloudKit
-     - returns: New key value & name, or nil if the key/name could not be retrieved
-     */
-    func fetchNewKey(userInfo: [AnyHashable: Any]) async throws -> (name: String, key: String)
-}
-
-public final class APIKeyCloudKit: APIKeyCloudKitType {
+public struct APIKeyCloudKit: Sendable {
     private let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
     private let recordType = "Keys"
+    private let containerIdentifier: String
 
-    public init() {}
+    public init(containerIdentifier: String) {
+        self.containerIdentifier = containerIdentifier
+    }
 
     // MARK: - APIKeyCloudKitType
 
@@ -146,42 +122,13 @@ public final class APIKeyCloudKit: APIKeyCloudKitType {
      Called when a silent CloudKit push is received to trigger
      getting a refreshed API Key
 
-     - parameter userInfo: Info about the push from CloudKit
+     - parameter for: CKRecord.ID of the record to fetch
      - returns: New key value, or nil if the key could not be retrieved
      */
-    public func fetchNewKey(userInfo: [AnyHashable: Any]) async throws -> (name: String, key: String) {
-        log.debug("fetchNewKey: \(userInfo)")
+    public func fetchNewKey(for recordID: CKRecord.ID) async throws -> (name: String, key: String) {
+        log.debug("fetchNewKey for CKRecord.ID: \(recordID)")
 
-        var recordID: CKRecord.ID {
-            get throws {
-                guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
-                    log.debug("Not a CKNotification")
-                    throw FetchKeyError.userInfoNotCKNotification
-                }
-
-                log.debug("userInfo is a CloudKit notification")
-                guard notification.notificationType == .query else {
-                    log.debug("Not the result of a query")
-                    throw FetchKeyError.userInfoNotCKNotification
-                }
-
-                guard let queryNotification = notification as? CKQueryNotification else {
-                    log.error("It's expected that the notification is of type CKQueryNotification")
-                    assertionFailure("It's expected that the notification is of type CKQueryNotification")
-                    throw FetchKeyError.userInfoNotCKNotification
-                }
-
-                if let recordID = queryNotification.recordID {
-                    return recordID
-                }
-
-                log.error("Missing recordID?")
-                assertionFailure("Missing recordID?")
-                throw FetchKeyError.recordNotFound
-            }
-        }
-
-        let record = try await database.record(for: try recordID)
+        let record = try await database.record(for: recordID)
 
         let keyName = try KeyField.name.extract(from: record)
         let keyValue = try KeyField.key.extract(from: record)
@@ -200,6 +147,6 @@ public final class APIKeyCloudKit: APIKeyCloudKitType {
     }
 
     private var database: CKDatabase {
-        CKContainer.default().publicCloudDatabase
+        CKContainer(identifier: containerIdentifier).publicCloudDatabase
     }
 }

@@ -8,7 +8,6 @@
 import Combine
 import Foundation
 import os
-import SpearFoundation
 
 private enum Log {
     static let logger = os.Logger(subsystem: "com.spearware.foundation", category: "🔑APIKey")
@@ -17,9 +16,10 @@ private enum Log {
 /**
  Keys coming from CloudKit
  */
-public enum APIKeyName: String, CustomStringConvertible {
+public enum APIKeyName: String, CustomStringConvertible, Sendable {
     /// Key used with openWeatherMap
     case openWeatherMap = "api.openweathermap.org"
+    case rainviewer
     public var description: String {
         rawValue
     }
@@ -28,7 +28,7 @@ public enum APIKeyName: String, CustomStringConvertible {
      Load the key from Defaults
      - returns: Key if exist or nil
      */
-    func load(from defaults: UserDefaultsType) -> String? {
+    func load(from defaults: UserDefaults) -> String? {
         defaults.string(forKey: rawValue)
     }
 
@@ -37,39 +37,12 @@ public enum APIKeyName: String, CustomStringConvertible {
      - parameter defaults: Defaults to save to
      - parameter value: Value to save
      */
-    func save(to defaults: UserDefaultsType, value: String?) {
+    func save(to defaults: UserDefaults, value: String?) {
         defaults.set(value, forKey: rawValue)
     }
 }
 
 public typealias APIKey = String
-
-/**
- Returns an API Key for a given `APIKeyName`
- */
-public protocol APIKeyReadable {
-    /**
-     Loads the key async in a publisher
-     - parameter named: Name of the key to retrieve
-     - parameter useCachedKey: True to use a previously retrieved cached key. If false the most recent key will be downloaded
-     - returns: key for a given `APIKeyName`
-     - throws: Error retrieving key
-
-     ```swift
-     let apiKey = try await apiKeyReader.apiKey(named: .openWeatherMap)
-     let request = coordinate.request(url: .hourly,
-     appId: apiKey)
-     let json = try await networkSession.loadJSON(from: request)
-     ```
-     */
-    func apiKey(named: APIKeyName, useCachedKey: Bool) async throws -> String
-
-    /**
-     Refresh a key from a CloudKit subscription
-     https://www.techotopia.com/index.php/An_iOS_8_CloudKit_Subscription_Example
-     */
-    func refreshKey(userInfo: [AnyHashable: Any]) async throws
-}
 
 /**
   ```swift
@@ -79,24 +52,32 @@ public protocol APIKeyReadable {
  let json = try await networkSession.loadJSON(from: request)
  ```
  */
-public actor APIKeyReader: APIKeyReadable {
+public actor APIKeyReader {
     let log = Log.logger
 
-    private let userDefaults: UserDefaultsType
-    private let apiKeyCloudKit: APIKeyCloudKitType
+    private let userDefaults = UserDefaults.standard
+    private let apiKeyCloudKit: APIKeyCloudKit
 
     /// Default shared instance.
     /// Having one instance can help if the key is being refreshed and accessed close to the same time
-    public static let shared: APIKeyReadable = APIKeyReader()
-
-    public init(userDefaults: UserDefaultsType = UserDefaults.standard,
-                apiKeyCloudKit: APIKeyCloudKitType = APIKeyCloudKit()) {
-        self.userDefaults = userDefaults
-        self.apiKeyCloudKit = apiKeyCloudKit
+    private static var _shared: APIKeyReader?
+    
+    public static var shared: APIKeyReader {
+        guard let _shared else {
+            Log.logger.fault("Please call configure first")
+            fatalError("Please call configure first")
+        }
+        return _shared
+    }
+    
+    public static func configure(apiKeyCloudKit: APIKeyCloudKit) -> APIKeyReader {
+        if let _shared { return _shared }
+        _shared = .init(apiKeyCloudKit: apiKeyCloudKit)
+        return _shared!
     }
 
-    deinit {
-        log.debug("deinit")
+    private init(apiKeyCloudKit: APIKeyCloudKit) {
+        self.apiKeyCloudKit = apiKeyCloudKit
     }
 
     /**
@@ -112,33 +93,22 @@ public actor APIKeyReader: APIKeyReadable {
      let json = try await networkSession.loadJSON(from: request)
      ```
      */
-    public func apiKey(named apiKeyName: APIKeyName,
-                       useCachedKey: Bool = true) async throws -> String {
-        let log = self.log
+    public func apiKey(named apiKeyName: APIKeyName) async throws -> String {
+        let log = log
 
         log.debug("Fetching APIKey: \(apiKeyName)")
 
-        // 1. Use existing key from defaults if one exist.
-        //    This key may never change. If it does it'll be because
-        //    a CloudKit notification, notified us of a changed key which will clear this out.
-        // 2. Check if an existing task is running for this key.
-        //    If one is running it'll wait for it to complete using the same task
-        //    for multiple request.
-        // 3. If there isn't a task yet, start one, placing the task in keyFetchState
-        //    so that it can be used in Step 2.
-        // 4. Start the task to fetch the key from CloudKit
-
-        // 1.
-        if useCachedKey {
-            if let existingKey = apiKeyName.load(from: userDefaults) {
-                log.debug("Key found in defaults for: \(apiKeyName.rawValue)")
-                return existingKey
-            }
+        if let existingKey = apiKeyName.load(from: userDefaults) {
+            log.debug("Key found in defaults for: \(apiKeyName.rawValue)")
+            return existingKey
         }
 
         log.debug("Key not found in defaults for: \(apiKeyName.rawValue)")
 
-        // 2.
+        if let key = try await checkExistingKeyTask() {
+            return key
+        }
+
         func checkExistingKeyTask() async throws -> String? {
             // 1. If there is an existing key, meaning has a task been started to fetch this key
             //   CloudKit yet?
@@ -175,30 +145,16 @@ public actor APIKeyReader: APIKeyReadable {
             case let .finished(apiKey):
                 // 3.
                 log.debug("Key is ready, checking freshness key: \(apiKey)")
+                apiKeyName.save(to: userDefaults, value: apiKey)
                 return apiKey
             }
         }
-
-        // 3.
-        if let key = try await checkExistingKeyTask() {
-            return key
-        }
-
-        // 4.
+        
         func startFetchTask() async throws -> String {
-            // 1. New task created
-            // 2. Task is stored in keys, so it's state can be checked when another thread
-            //    enters this function
-            // 3. Task is executed
-            // 4. State is changed to ready when successfully completed
-            // 5. Error clears out state for key, so that the fetch can be attempted again
-
-            // 1.
             let fetchTask = Task {
                 try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
             }
 
-            // 2.
             keyFetchState[apiKeyName] = .inProgress(fetchTask)
             log.debug("keys: \(apiKeyName.rawValue) to: inProgress")
 
@@ -229,10 +185,10 @@ public actor APIKeyReader: APIKeyReadable {
 
      - parameter userInfo: Dictionary with information about the push notification. Passed directly from didReceiveRemoteNotification
      */
-    public func refreshKey(userInfo: [AnyHashable: Any]) async throws {
-        log.debug("refreshKey: \(userInfo)")
+    public func refreshKey(_ keyRefreshInfo: KeyRefreshInfo) async throws {
+        log.debug("refreshKey with recordID: \(keyRefreshInfo.recordID)")
 
-        let newKey = try await apiKeyCloudKit.fetchNewKey(userInfo: userInfo)
+        let newKey = try await apiKeyCloudKit.fetchNewKey(for: keyRefreshInfo.recordID)
         log.debug("NewKey retrieved from CloudKit named: \(newKey.name)")
 
         guard let apiKeyName = APIKeyName(rawValue: newKey.name) else {
@@ -258,9 +214,9 @@ public actor APIKeyReader: APIKeyReadable {
         var description: String {
             switch self {
             case .inProgress:
-                return "inProgress"
+                "inProgress"
             case .finished:
-                return "finished"
+                "finished"
             }
         }
     }
