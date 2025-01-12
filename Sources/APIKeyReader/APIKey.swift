@@ -10,6 +10,7 @@ public struct APIKey: RawRepresentable, CustomStringConvertible, Sendable, Codab
     public init(rawValue: String) {
         self.rawValue = rawValue
     }
+
     public var description: String {
         rawValue
     }

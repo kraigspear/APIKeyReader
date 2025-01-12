@@ -19,12 +19,12 @@ enum FetchKeyError: LocalizedError {
     case recordNotFound
     /// Airplane mode or poor network
     case networkUnavailable
-    
+
     public var errorDescription: String? {
         switch self {
-        case .missingField(let fieldName):
+        case let .missingField(fieldName):
             "[Developer Error] Invalid key configuration - missing \(fieldName)"
-        case .cloudKitError(let error):
+        case let .cloudKitError(error):
             "CloudKit operation failed: \(error.localizedDescription)"
         case .recordNotFound:
             "[Developer Error] Invalid Configuration Key was not found"

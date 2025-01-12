@@ -16,6 +16,7 @@ struct TestAppApp: App {
             containerIdentifier: "iCloud.com.spearware.Klimate"
         )
     }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

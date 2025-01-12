@@ -6,17 +6,16 @@
 //
 
 import APIKeyReader
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct ContentView: View {
-    
     @State private var testResult = "Empty"
     private let keyName = APIKeyName(rawValue: "rainviewer")
-    
+
     var body: some View {
         List {
-            Section ("Test") {
+            Section("Test") {
                 Button("Test Fetch Key") {
                     Task {
                         do {
@@ -32,9 +31,9 @@ struct ContentView: View {
                 Button("Test multiple calls") {
                     Task {
                         let apiKeyReader = APIKeyReader.shared
-                        
+
                         try await withThrowingTaskGroup(of: APIKey.self) { group in
-                            for _ in 0..<10 {
+                            for _ in 0 ..< 10 {
                                 group.addTask {
                                     let key = try await apiKeyReader.apiKey(
                                         named: keyName,
@@ -43,13 +42,13 @@ struct ContentView: View {
                                     return key
                                 }
                             }
-                            
+
                             var results: [APIKey] = []
-                            
+
                             for try await result in group {
                                 results.append(result)
                             }
-                            
+
                             testResult = results.first!.rawValue
                         }
                     }
@@ -58,7 +57,7 @@ struct ContentView: View {
                     Task {
                         do {
                             testResult = try await APIKeyReader.shared.apiKey(
-                                named: .init(rawValue: "missingKey") ,
+                                named: .init(rawValue: "missingKey"),
                                 expiresMinutes: 1
                             ).rawValue
                         } catch {
@@ -67,7 +66,7 @@ struct ContentView: View {
                     }
                 }
             }
-            
+
             Section("Setup") {
                 Button("Remove key from Defaults") {
                     UserDefaults.standard.removeObject(forKey: "rainviewer")

@@ -39,7 +39,7 @@ public actor APIKeyReader {
     /// Default shared instance.
     /// Having one instance can help if the key is being refreshed and accessed close to the same time
     private static var _shared: APIKeyReader?
-    
+
     public static var shared: APIKeyReader {
         guard let _shared else {
             Log.logger.fault("Please call configure first")
@@ -47,7 +47,7 @@ public actor APIKeyReader {
         }
         return _shared
     }
-    
+
     public static func configure(containerIdentifier: String) {
         _shared = .init(
             apiKeyCloudKit: .init(containerIdentifier: containerIdentifier)
@@ -78,12 +78,12 @@ public actor APIKeyReader {
         let log = log
 
         log.debug("Fetching APIKey: \(apiKeyName)")
-        
+
         // We can fallback to this if we have errors loading from CloudKit
         let expiredKey: APIKey?
-        
+
         let localStorage = LocalStorage(key: apiKeyName)
-        
+
         do {
             return try localStorage.load()
         } catch LoadError.decodeError {
@@ -99,49 +99,48 @@ public actor APIKeyReader {
             assertionFailure("Unknown error")
             logger.error("Unhandled error")
         }
-        
+
         log.debug("Key not found or expired in defaults for: \(apiKeyName)")
-        
+
         let key = try await fetchKey(task: taskFor(apiKeyName))
-        
+
         localStorage.save(
             value: key,
             expiresMinutes: expiresMinutes
         )
-        
+
         keyFetchTask[apiKeyName] = nil
         return key
 
         func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
-            
             if let inProgressTask = keyFetchTask[apiKeyName] {
                 log.debug("Returning existing task")
                 return inProgressTask
             }
-            
+
             log.debug("Starting new task")
             let newTask = Task {
                 try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
             }
-            
+
             keyFetchTask[apiKeyName] = newTask
             return newTask
         }
-        
+
         func fetchKey(task: Task<APIKey, Error>) async throws -> APIKey {
             do {
                 return try await task.value
             } catch {
                 keyFetchTask[apiKeyName] = nil
-                
+
                 log.error("Error fetching new key: \(error)")
-                
+
                 // If we have a previous key, and we can't get a new one
                 // we'll attempt to use it.
                 if let expiredKey {
                     return expiredKey
                 }
-                
+
                 throw error
             }
         }

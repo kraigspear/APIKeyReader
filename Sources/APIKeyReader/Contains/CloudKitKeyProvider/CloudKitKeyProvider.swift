@@ -1,5 +1,5 @@
 //
-//  APIKeyCloudKit.swift
+//  CloudKitKeyProvider.swift
 //
 //
 //  Created by Kraig Spear on 10/27/21.
@@ -56,7 +56,7 @@ struct CloudKitKeyProvider: Sendable {
         func performQueryReturningFirstResult() async throws -> CKRecord {
             let query = queryForKey(apiKeyName)
             log.debug("Performing query \(query)")
-            
+
             if let firstMatch = try await fetchFirstResult() {
                 log.debug("Finished query \(query)")
                 log.debug("Found result in CloudKit \(apiKeyName)")
@@ -69,11 +69,11 @@ struct CloudKitKeyProvider: Sendable {
                     return record
                 }
             }
-            
+
             log.error("Query returned 0 results \(query)")
-            
+
             throw FetchKeyError.recordNotFound
-            
+
             func fetchFirstResult() async throws -> Result<CKRecord, any Error>? {
                 do {
                     return try await database.records(matching: query).matchResults.first?.1

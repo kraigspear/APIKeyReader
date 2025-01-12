@@ -10,14 +10,13 @@ import Foundation
 private let logger = Log.logger
 
 struct LocalStorage {
-    
     private let key: APIKeyName
     private let defaults = UserDefaults.standard
-    
+
     init(key: APIKeyName) {
         self.key = key
     }
-    
+
     func load() throws -> APIKey {
         guard let data = UserDefaults.standard.data(forKey: key.rawValue) else {
             logger.debug("\(key) doesn't exist in defaults")
@@ -34,18 +33,17 @@ struct LocalStorage {
         logger.error("Wasn't able to decode SavedAPIKey")
         throw LoadError.decodeError
     }
-    
+
     func clear() {
         defaults.set(nil, forKey: key.rawValue)
     }
-    
+
     func save(value: APIKey?, expiresMinutes: Int) {
-        
         guard let value else {
             defaults.set(nil, forKey: key.rawValue)
             return
         }
-        
+
         if let encodedSavedAPIKey = try? SavedAPIKey(
             key: value,
             expiresMinutes: expiresMinutes

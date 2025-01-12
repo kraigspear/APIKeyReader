@@ -12,7 +12,7 @@ public struct APIKeyName: RawRepresentable, Hashable, CustomStringConvertible, S
     public init(rawValue: String) {
         self.rawValue = rawValue
     }
-    
+
     public var description: String {
         rawValue
     }
