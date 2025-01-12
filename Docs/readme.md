@@ -1,203 +1,209 @@
 # API Key Management System Documentation
 
-## Overview
+This documentation covers a Swift-based API key management system that securely handles API keys using CloudKit for storage and local caching. The system provides a robust way to manage API keys with features like expiration, caching, and error handling.
 
-The API Key Management System is a robust solution for handling API keys in iOS applications using CloudKit as a backend. It provides secure key storage, efficient caching, and real-time updates through CloudKit subscriptions.
+## System Overview
 
-### Key Features
-
-- Secure API key storage in CloudKit
-- Local caching with UserDefaults
-- Thread-safe operations using Swift actors
-- Real-time key updates via CloudKit subscriptions
-- Efficient handling of concurrent requests
-- Comprehensive error handling
-
-## System Architecture
+The system is designed to:
+1. Securely store API keys in CloudKit
+2. Cache keys locally with expiration
+3. Handle network failures gracefully
+4. Provide type-safe API key access
 
 ### Class Diagram
 
 ```mermaid
 classDiagram
-    class APIKeyReadable {
-        <<interface>>
-        +apiKey(named: APIKeyName, useCachedKey: Bool) String
-        +refreshKey(userInfo: [AnyHashable: Any]) void
-    }
-    
     class APIKeyReader {
-        -userDefaults: UserDefaultsType
-        -apiKeyCloudKit: APIKeyCloudKitType
-        -keyFetchState: [APIKeyName: APIKeyFetchState]
-        +shared: APIKeyReadable
-        +apiKey(named: APIKeyName, useCachedKey: Bool) String
-        +refreshKey(userInfo: [AnyHashable: Any]) void
+        -CloudKitKeyProvider apiKeyCloudKit
+        -Dictionary keyFetchTask
+        +apiKey(named: APIKeyName, expiresMinutes: Int) APIKey
+        +configure(containerIdentifier: String)
     }
     
-    class APIKeyCloudKitType {
-        <<interface>>
-        +fetchAPIKey(APIKeyName) String
-        +subscribeToCloudKitChanges(apiKeyName: APIKeyName) String
-        +fetchNewKey(userInfo: [AnyHashable: Any]) (name: String, key: String)
+    class CloudKitKeyProvider {
+        -String containerIdentifier
+        -String recordType
+        +fetchAPIKey(APIKeyName) APIKey
     }
     
-    class APIKeyCloudKit {
-        -database: CKDatabase
-        +fetchAPIKey(APIKeyName) String
-        +subscribeToCloudKitChanges(apiKeyName: APIKeyName) String
-        +fetchNewKey(userInfo: [AnyHashable: Any]) (name: String, key: String)
+    class LocalStorage {
+        -APIKeyName key
+        -UserDefaults defaults
+        +load() APIKey
+        +save(value: APIKey, expiresMinutes: Int)
+        +clear()
     }
     
-    APIKeyReader ..|> APIKeyReadable
-    APIKeyCloudKit ..|> APIKeyCloudKitType
-    APIKeyReader --> APIKeyCloudKitType
+    class SavedAPIKey {
+        +APIKey key
+        +Date updated
+        +Int expiresMinutes
+        +Boolean expired
+    }
+    
+    class APIKey {
+        +String rawValue
+    }
+    
+    class APIKeyName {
+        +String rawValue
+    }
+    
+    APIKeyReader --> CloudKitKeyProvider
+    APIKeyReader --> LocalStorage
+    LocalStorage --> SavedAPIKey
+    SavedAPIKey --> APIKey
+    CloudKitKeyProvider --> APIKey
+    APIKeyReader --> APIKeyName
+
 ```
 
 ### Flow Diagram
 
 ```mermaid
 flowchart TD
-    A[App Requests API Key] --> B{Check UserDefaults}
-    B -->|Key Found| C[Return Cached Key]
-    B -->|No Key| D{Check Existing Task}
-    D -->|Task Exists| E[Wait for Task]
-    D -->|No Task| F[Create New Task]
-    F --> G[Fetch from CloudKit]
-    G --> H[Save to UserDefaults]
-    G --> I[Setup CloudKit Subscription]
-    E --> H
-    H --> J[Return Key]
-    
-    K[CloudKit Push Notification] --> L[Fetch Updated Key]
-    L --> M[Update UserDefaults]
+    A[Request API Key] --> B{Check Local Storage}
+    B -->|Found & Valid| C[Return Cached Key]
+    B -->|Not Found or Expired| D{Check Ongoing Fetch}
+    D -->|Exists| E[Wait for Existing Fetch]
+    D -->|None| F[Start New CloudKit Fetch]
+    F --> G{Fetch Success?}
+    G -->|Yes| H[Cache Key]
+    G -->|No| I{Has Expired Key?}
+    I -->|Yes| J[Return Expired Key]
+    I -->|No| K[Throw Error]
+    H --> L[Return Fresh Key]
+    E --> G
 ```
 
-### Sequence Diagram (Key Fetch)
+### Sequence Diagram
 
 ```mermaid
 sequenceDiagram
     participant App
     participant APIKeyReader
-    participant UserDefaults
-    participant APIKeyCloudKit
+    participant LocalStorage
     participant CloudKit
     
     App->>APIKeyReader: Request API Key
-    APIKeyReader->>UserDefaults: Check Cache
-    alt Key in Cache
-        UserDefaults-->>APIKeyReader: Return Cached Key
+    APIKeyReader->>LocalStorage: Check Cache
+    
+    alt Key Found & Valid
+        LocalStorage-->>APIKeyReader: Return Cached Key
         APIKeyReader-->>App: Return Key
-    else No Cached Key
-        APIKeyReader->>APIKeyCloudKit: Fetch Key
-        APIKeyCloudKit->>CloudKit: Query Key
-        CloudKit-->>APIKeyCloudKit: Return Key
-        APIKeyCloudKit-->>APIKeyReader: Return Key
-        APIKeyReader->>UserDefaults: Cache Key
-        APIKeyReader-->>App: Return Key
+    else Key Not Found or Expired
+        LocalStorage-->>APIKeyReader: Key Not Valid
+        APIKeyReader->>CloudKit: Fetch Key
+        
+        alt Fetch Successful
+            CloudKit-->>APIKeyReader: Return Fresh Key
+            APIKeyReader->>LocalStorage: Cache Key
+            APIKeyReader-->>App: Return Fresh Key
+        else Network Error
+            CloudKit-->>APIKeyReader: Error
+            APIKeyReader->>LocalStorage: Check for Expired Key
+            alt Has Expired Key
+                LocalStorage-->>APIKeyReader: Return Expired Key
+                APIKeyReader-->>App: Return Expired Key
+            else No Expired Key
+                APIKeyReader-->>App: Throw Error
+            end
+        end
     end
 ```
 
-## Usage Examples
+## Key Components
 
-### Basic Key Retrieval
+### APIKeyReader
 
-```swift
-// Using shared instance
-let apiKey = try await APIKeyReader.shared.apiKey(named: .openWeatherMap)
-
-// Custom instance
-let reader = APIKeyReader(userDefaults: UserDefaults.standard,
-                         apiKeyCloudKit: APIKeyCloudKit())
-let apiKey = try await reader.apiKey(named: .openWeatherMap)
-```
-
-### Handling CloudKit Updates
+The main entry point for the API key management system. It's implemented as an actor to ensure thread-safe access to shared resources.
 
 ```swift
-// In AppDelegate
-func application(_ application: UIApplication,
-                didReceiveRemoteNotification userInfo: [AnyHashable : Any],
-                fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-    Task {
-        do {
-            try await APIKeyReader.shared.refreshKey(userInfo: userInfo)
-            completionHandler(.newData)
-        } catch {
-            completionHandler(.failed)
-        }
-    }
-}
+// Usage example
+let apiKey = try await APIKeyReader.shared.apiKey(
+    named: .openWeatherMap,
+    expiresMinutes: 60
+)
 ```
+
+### CloudKitKeyProvider
+
+Handles the interaction with CloudKit for retrieving API keys. It expects a specific schema in CloudKit:
+
+```swift
+// CloudKit Schema
+// Table: "Keys"
+// Fields:
+//   - name: String (key identifier)
+//   - key: String (actual API key value)
+```
+
+### LocalStorage
+
+Manages the local caching of API keys using UserDefaults with expiration tracking.
 
 ### Error Handling
 
-```swift
-do {
-    let apiKey = try await apiKeyReader.apiKey(named: .openWeatherMap)
-    // Use apiKey
-} catch FetchKeyError.cloudKitError(let error) {
-    // Handle CloudKit error
-} catch FetchKeyError.recordNotFound {
-    // Handle missing key
-} catch FetchKeyError.missingField(let fieldName) {
-    // Handle missing field
-} catch {
-    // Handle other errors
-}
-```
-
-## Implementation Details
-
-### Key States
-The system manages API key fetching states using an enum:
+The system defines several error types:
 
 ```swift
-private enum APIKeyFetchState {
-    case inProgress(Task<APIKey, Error>)
-    case finished(APIKey)
-}
-```
-
-This enables efficient handling of concurrent requests by:
-1. Preventing duplicate CloudKit queries
-2. Ensuring all concurrent requests receive the same result
-3. Maintaining thread safety through the actor system
-
-### CloudKit Integration
-The system uses CloudKit's public database for key storage:
-
-1. Keys are stored in a "Keys" record type
-2. Each record contains:
-   - name: The API key identifier
-   - key: The actual API key value
-3. CloudKit subscriptions enable push notifications when keys are updated
-
-### Caching Strategy
-The system implements a two-level caching strategy:
-
-1. In-memory cache for active fetching tasks
-2. UserDefaults persistence for retrieved keys
-
-This approach provides:
-- Minimal CloudKit queries
-- Fast key retrieval
-- Automatic key updates through CloudKit subscriptions
-
-## Error Handling
-
-The system defines several error types through `FetchKeyError`:
-
-```swift
-public enum FetchKeyError: Error {
+enum FetchKeyError: LocalizedError {
     case missingField(named: String)
-    case userInfoNotCKNotification
     case cloudKitError(error: Error)
     case recordNotFound
+    case networkUnavailable
+}
+
+enum LoadError: Error {
+    case expired(APIKey)
+    case decodeError
+    case keyDoesNotExist
 }
 ```
 
-Each error type corresponds to a specific failure scenario:
-- `missingField`: Required field not found in CloudKit record
-- `userInfoNotCKNotification`: Invalid push notification format
-- `cloudKitError`: CloudKit operation failure
-- `recordNotFound`: No matching key found in CloudKit
+## Key Features
+
+1. **Concurrent Request Handling**: Multiple requests for the same key are coalesced into a single CloudKit fetch operation.
+
+2. **Graceful Degradation**: If network connectivity is lost, the system can fall back to expired keys rather than failing completely.
+
+3. **Type Safety**: Uses strongly-typed `APIKey` and `APIKeyName` types to prevent errors.
+
+4. **Automatic Expiration**: Cached keys automatically expire after a configurable duration.
+
+## Best Practices
+
+1. **Configuration**:
+   ```swift
+   // Configure before using
+   APIKeyReader.configure(containerIdentifier: "iCloud.com.your.container")
+   ```
+
+2. **Error Handling**:
+   ```swift
+   do {
+       let key = try await APIKeyReader.shared.apiKey(
+           named: .myAPIKey,
+           expiresMinutes: 60
+       )
+   } catch FetchKeyError.networkUnavailable {
+       // Handle offline scenario
+   } catch {
+       // Handle other errors
+   }
+   ```
+
+3. **Key Names**:
+   ```swift
+   extension APIKeyName {
+       static let openWeatherMap = Self(rawValue: "openWeatherMap")
+       static let googleMaps = Self(rawValue: "googleMaps")
+   }
+   ```
+
+## Security Considerations
+
+1. Keys are stored in CloudKit's public database but should be protected by app-level authentication
+2. Local cache uses UserDefaults - consider using Keychain for higher security
+3. Expired keys are used as fallback - implement server-side validation for critical operations
