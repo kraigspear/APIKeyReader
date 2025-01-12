@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "839EBE92-7C64-4B72-ACC3-834B39847744",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "APIKeyReaderTests",
+        "name" : "APIKeyReaderTests"
+      }
+    }
+  ],
+  "version" : 1
+}

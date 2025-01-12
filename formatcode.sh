@@ -1,1 +1,1 @@
-swiftformat . --indent 4 --swiftversion 5.3 --disable wrapMultilineStatementBraces
+swiftformat . --indent 4 --swiftversion 6.0 --disable wrapMultilineStatementBraces
