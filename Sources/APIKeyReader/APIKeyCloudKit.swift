@@ -9,20 +9,6 @@ import CloudKit
 import Foundation
 import os
 
-/**
- An error was encountered when fetching a new Key
- **/
-public enum FetchKeyError: Error {
-    /// Attempt to read a field from CloudKit. The field was missing or an unexpected type
-    case missingField(named: String)
-    /// UserInfo passed in can't be converted to a CKNotification
-    case userInfoNotCKNotification
-    /// Error from CloudKit when attempting to retrieve record
-    case cloudKitError(error: Error)
-    /// Attempt to read a record from CloudKit that is expected to exist
-    case recordNotFound
-}
-
 /// Name of fields in the Keys table
 private enum KeyField: String {
     /// Name of the API Key
@@ -70,11 +56,10 @@ public struct APIKeyCloudKit: Sendable {
         func performQueryReturningFirstResult() async throws -> CKRecord {
             let query = queryForKey(apiKeyName)
             log.debug("Performing query \(query)")
-            let firstMatchedResult = try await database.records(matching: query).matchResults.first?.1
-            log.debug("Finished query \(query)")
-
-            if let firstMatch = firstMatchedResult {
-                log.debug("Found result in CloudKit \(apiKeyName.rawValue)")
+            
+            if let firstMatch = try await fetchFirstResult() {
+                log.debug("Finished query \(query)")
+                log.debug("Found result in CloudKit \(apiKeyName)")
 
                 switch firstMatch {
                 case let .failure(error):
@@ -84,35 +69,30 @@ public struct APIKeyCloudKit: Sendable {
                     return record
                 }
             }
-
+            
             log.error("Query returned 0 results \(query)")
+            
             throw FetchKeyError.recordNotFound
+            
+            func fetchFirstResult() async throws -> Result<CKRecord, any Error>? {
+                do {
+                    return try await database.records(matching: query).matchResults.first?.1
+                } catch let error as CKError {
+                    if error.code == .networkFailure || error.code == .networkUnavailable {
+                        throw FetchKeyError.recordNotFound
+                    } else {
+                        throw FetchKeyError.cloudKitError(error: error)
+                    }
+                }
+            }
         }
 
         let cloudKitRecordForKey = try await performQueryReturningFirstResult()
-        log.debug("Found API key for \(apiKeyName.rawValue)")
+        log.debug("Found API key for \(apiKeyName)")
 
         let apiKey = try KeyField.key.extract(from: cloudKitRecordForKey)
         log.debug("Returning API key for: \(apiKeyName)")
         return apiKey
-    }
-
-    /**
-     Called when a silent CloudKit push is received to trigger
-     getting a refreshed API Key
-
-     - parameter for: CKRecord.ID of the record to fetch
-     - returns: New key value, or nil if the key could not be retrieved
-     */
-    public func fetchNewKey(for recordID: CKRecord.ID) async throws -> (name: String, key: String) {
-        log.debug("fetchNewKey for CKRecord.ID: \(recordID)")
-
-        let record = try await database.record(for: recordID)
-
-        let keyName = try KeyField.name.extract(from: record)
-        let keyValue = try KeyField.key.extract(from: record)
-
-        return (name: keyName, key: keyValue)
     }
 
     // MARK: - Private
@@ -122,7 +102,7 @@ public struct APIKeyCloudKit: Sendable {
     }
 
     private func predicateForKey(_ apiKeyName: APIKeyName) -> NSPredicate {
-        NSPredicate(format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName.rawValue])
+        NSPredicate(format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName])
     }
 
     private var database: CKDatabase {

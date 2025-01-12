@@ -11,9 +11,12 @@ import CloudKit
 struct SavedAPIKey: Codable {
     let key: String
     let updated: Date
+    let expiresMinutes: Int
     
-    init(key: String) {
+    init(key: String,
+         expiresMinutes: Int) {
         self.key = key
+        self.expiresMinutes = expiresMinutes
         self.updated = Date()
     }
     
@@ -31,11 +34,6 @@ struct SavedAPIKey: Codable {
             from: updated,
             to: Date()
         ).minute ?? 0
-        #if DEBUG
-            let expiredMinutes = 1
-        #else
-            let expiredMinutes = 60
-        #endif
-        return minutes >= expiredMinutes
+        return minutes >= expiresMinutes
     }
 }

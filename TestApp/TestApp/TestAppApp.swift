@@ -9,12 +9,15 @@ import APIKeyReader
 import os
 import SwiftUI
 
-let logger = os.Logger(subsystem: "com.spearware.APITest", category: "main")
-
 @main
 struct TestAppApp: App {
     init() {
-        APIKeyReader.configure(apiKeyCloudKit: .init(containerIdentifier: "iCloud.com.spearware.Klimate"))
+        APIKeyReader.configure(
+            apiKeyCloudKit:
+                    .init(
+                        containerIdentifier: "iCloud.com.spearware.Klimate"
+                    )
+        )
     }
     var body: some Scene {
         WindowGroup {

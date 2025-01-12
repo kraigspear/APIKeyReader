@@ -15,53 +15,57 @@ enum Log {
 
 private let logger = Log.logger
 
-/**
- Keys coming from CloudKit
- */
-public enum APIKeyName: String, CustomStringConvertible, Sendable {
-    /// Key used with openWeatherMap
-    case openWeatherMap = "api.openweathermap.org"
-    case rainviewer
-    public var description: String {
-        rawValue
-    }
+public typealias APIKeyName = String
 
-    /**
-     Load the key from Defaults
-     - returns: Key if exist or nil
-     */
-    func load(from defaults: UserDefaults) -> String? {
-        guard let data = defaults.data(forKey: rawValue) else {
-            logger.debug("\(rawValue) doesn't exist in defaults")
-            return nil
+enum LoadError: Error {
+    case expired(String)
+    case decodeError
+    case keyDoesNotExist
+}
+
+struct LocalStorage {
+    
+    private let key: String
+    private let defaults = UserDefaults.standard
+    
+    init(key: String) {
+        self.key = key
+    }
+    
+    func load() throws -> String {
+        guard let data = UserDefaults.standard.data(forKey: key) else {
+            logger.debug("\(key) doesn't exist in defaults")
+            throw LoadError.keyDoesNotExist
         }
-        logger.debug("Found \(rawValue) in defaults")
+        logger.debug("Found \(key) in defaults")
         if let savedAPIKey = try? SavedAPIKey.decode(data) {
             if savedAPIKey.expired {
-                logger.debug("APIKey is expired, setting to nil")
-                save(to: defaults, value: nil)
+                throw LoadError.expired(savedAPIKey.key)
             }
             logger.debug("APIKey is fresh, returning")
             return savedAPIKey.key
         }
         logger.error("Wasn't able to decode SavedAPIKey")
-        return nil
+        throw LoadError.decodeError
     }
-
-    /**
-     Save value to Defaults
-     - parameter defaults: Defaults to save to
-     - parameter value: Value to save
-     */
-    func save(to defaults: UserDefaults, value: String?) {
+    
+    func clear() {
+        defaults.set(nil, forKey: key)
+    }
+    
+    func save(value: String?, expiresMinutes: Int) {
+        
         guard let value else {
-            defaults.set(nil, forKey: rawValue)
+            defaults.set(nil, forKey: key)
             return
         }
         
-        if let encodedSavedAPIKey = try? SavedAPIKey(key: value).encode() {
+        if let encodedSavedAPIKey = try? SavedAPIKey(
+            key: value,
+            expiresMinutes: expiresMinutes
+        ).encode() {
             logger.debug("SavedAPIKey key encoded, saving")
-            defaults.set(encodedSavedAPIKey, forKey: rawValue)
+            defaults.set(encodedSavedAPIKey, forKey: key)
         } else {
             logger.error("Can't encode, not saving key")
             assertionFailure("Can't encode")
@@ -118,29 +122,46 @@ public actor APIKeyReader {
      let json = try await networkSession.loadJSON(from: request)
      ```
      */
-    public func apiKey(named apiKeyName: APIKeyName) async throws -> String {
+    public func apiKey(
+        named apiKeyName: APIKeyName,
+        expiresMinutes: Int
+    ) async throws -> String {
         let log = log
 
         log.debug("Fetching APIKey: \(apiKeyName)")
-
-        if let existingKey = apiKeyName.load(from: userDefaults) {
-            log.debug("Key found in defaults for: \(apiKeyName.rawValue)")
-            return existingKey
-        }
-
-        log.debug("Key not found in defaults for: \(apiKeyName.rawValue)")
         
-        let task = taskFor(apiKeyName)
+        // We can fallback to this if we have errors loading from CloudKit
+        let expiredKey: String?
+        
+        let localStorage = LocalStorage(key: apiKeyName)
         
         do {
-            let key = try await task.value
-            apiKeyName.save(to: userDefaults, value: key)
-            keyFetchState[apiKeyName] = nil
-            return key
+            return try localStorage.load()
+        } catch LoadError.decodeError {
+            expiredKey = nil
+            localStorage.clear()
+        } catch let LoadError.expired(key) {
+            logger.debug("key is expired")
+            expiredKey = key
+        } catch LoadError.keyDoesNotExist {
+            expiredKey = nil
         } catch {
-            keyFetchState[apiKeyName] = nil
-            throw error
+            expiredKey = nil
+            assertionFailure("Unknown error")
+            logger.error("Unhandled error")
         }
+        
+        log.debug("Key not found or expired in defaults for: \(apiKeyName)")
+        
+        let key = try await fetchKey(task: taskFor(apiKeyName))
+        
+        localStorage.save(
+            value: key,
+            expiresMinutes: expiresMinutes
+        )
+        
+        keyFetchState[apiKeyName] = nil
+        return key
 
         func taskFor(_ apiKeyName: APIKeyName) -> Task<String, Error> {
             
@@ -156,6 +177,24 @@ public actor APIKeyReader {
             
             keyFetchState[apiKeyName] = .inProgress(newTask)
             return newTask
+        }
+        
+        func fetchKey(task: Task<String, Error>) async throws -> String {
+            do {
+                return try await task.value
+            } catch {
+                keyFetchState[apiKeyName] = nil
+                
+                log.error("Error fetching new key: \(error)")
+                
+                // If we have a previous key, and we can't get a new one
+                // we'll attempt to use it.
+                if let expiredKey {
+                    return expiredKey
+                }
+                
+                throw error
+            }
         }
     }
 
