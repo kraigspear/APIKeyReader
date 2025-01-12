@@ -10,7 +10,7 @@ import Foundation
 /**
  An error was encountered when fetching a new Key
  **/
-public enum FetchKeyError: LocalizedError {
+enum FetchKeyError: LocalizedError {
     /// Attempt to read a field from CloudKit. The field was missing or an unexpected type
     case missingField(named: String)
     /// Error from CloudKit when attempting to retrieve record

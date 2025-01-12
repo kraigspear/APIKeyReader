@@ -21,24 +21,24 @@ private enum KeyField: String {
      - parameter record: The CKRecord to extract from
      - throws FetchKeyError.missingField: If the key can isn't found or the expected type
      */
-    func extract(from record: CKRecord) throws -> String {
+    func extract(from record: CKRecord) throws -> APIKey {
         let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
         let fieldName = rawValue
         if let value = record[fieldName] as? String {
             log.debug("Field named: \(fieldName) found value of: \(value)")
-            return value
+            return .init(rawValue: value)
         }
         log.error("Record was found, but not the field: \(fieldName)")
         throw FetchKeyError.missingField(named: fieldName)
     }
 }
 
-public struct APIKeyCloudKit: Sendable {
+struct CloudKitKeyProvider: Sendable {
     private let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
     private let recordType = "Keys"
     private let containerIdentifier: String
 
-    public init(containerIdentifier: String) {
+    init(containerIdentifier: String) {
         self.containerIdentifier = containerIdentifier
     }
 
@@ -50,7 +50,7 @@ public struct APIKeyCloudKit: Sendable {
      - returns: API key for a given name
      - throws FetchKeyError.cloudKitError: If CloudKit throws an error
      */
-    public func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey {
+    func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey {
         log.debug("Fetching from CloudKit Key: \(apiKeyName)")
 
         func performQueryReturningFirstResult() async throws -> CKRecord {
@@ -98,11 +98,16 @@ public struct APIKeyCloudKit: Sendable {
     // MARK: - Private
 
     private func queryForKey(_ apiKeyName: APIKeyName) -> CKQuery {
-        CKQuery(recordType: recordType, predicate: predicateForKey(apiKeyName))
+        CKQuery(
+            recordType: recordType,
+            predicate: predicateForKey(apiKeyName)
+        )
     }
 
     private func predicateForKey(_ apiKeyName: APIKeyName) -> NSPredicate {
-        NSPredicate(format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName])
+        NSPredicate(
+            format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName.rawValue]
+        )
     }
 
     private var database: CKDatabase {

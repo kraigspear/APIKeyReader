@@ -11,8 +11,8 @@ import SwiftData
 
 struct ContentView: View {
     
-    @State private var apiKey = "Empty"
-    private let keyName = "rainviewer"
+    @State private var testResult = "Empty"
+    private let keyName = APIKeyName(rawValue: "rainviewer")
     
     var body: some View {
         List {
@@ -20,12 +20,12 @@ struct ContentView: View {
                 Button("Test Fetch Key") {
                     Task {
                         do {
-                            apiKey = try await APIKeyReader.shared.apiKey(
+                            testResult = try await APIKeyReader.shared.apiKey(
                                 named: keyName,
                                 expiresMinutes: 1
-                            )
+                            ).rawValue
                         } catch {
-                            apiKey = error.localizedDescription
+                            testResult = error.localizedDescription
                         }
                     }
                 }
@@ -33,7 +33,7 @@ struct ContentView: View {
                     Task {
                         let apiKeyReader = APIKeyReader.shared
                         
-                        try await withThrowingTaskGroup(of: String.self) { group in
+                        try await withThrowingTaskGroup(of: APIKey.self) { group in
                             for _ in 0..<10 {
                                 group.addTask {
                                     let key = try await apiKeyReader.apiKey(
@@ -44,25 +44,25 @@ struct ContentView: View {
                                 }
                             }
                             
-                            var results: [String] = []
+                            var results: [APIKey] = []
                             
                             for try await result in group {
                                 results.append(result)
                             }
                             
-                            apiKey = results.first!
+                            testResult = results.first!.rawValue
                         }
                     }
                 }
                 Button("Key does't exist") {
                     Task {
                         do {
-                            apiKey = try await APIKeyReader.shared.apiKey(
-                                named: "missingKey",
+                            testResult = try await APIKeyReader.shared.apiKey(
+                                named: .init(rawValue: "missingKey") ,
                                 expiresMinutes: 1
-                            )
+                            ).rawValue
                         } catch {
-                            apiKey = error.localizedDescription
+                            testResult = error.localizedDescription
                         }
                     }
                 }
@@ -74,7 +74,7 @@ struct ContentView: View {
                 }
             }
             Section("Result") {
-                Text("APIKey: \(apiKey)")
+                Text("Test Result: \(testResult)")
             }
         }
     }

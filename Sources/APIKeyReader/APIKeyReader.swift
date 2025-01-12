@@ -15,25 +15,36 @@ enum Log {
 
 private let logger = Log.logger
 
-public typealias APIKeyName = String
+public struct APIKeyName: RawRepresentable, Hashable, CustomStringConvertible, Sendable {
+    public let rawValue: String
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+    
+    public var description: String {
+        rawValue
+    }
+}
 
 enum LoadError: Error {
-    case expired(String)
+    case expired(APIKey)
     case decodeError
     case keyDoesNotExist
 }
 
+typealias FetchKeyTask = Task<APIKey, Error>
+
 struct LocalStorage {
     
-    private let key: String
+    private let key: APIKeyName
     private let defaults = UserDefaults.standard
     
-    init(key: String) {
+    init(key: APIKeyName) {
         self.key = key
     }
     
-    func load() throws -> String {
-        guard let data = UserDefaults.standard.data(forKey: key) else {
+    func load() throws -> APIKey {
+        guard let data = UserDefaults.standard.data(forKey: key.rawValue) else {
             logger.debug("\(key) doesn't exist in defaults")
             throw LoadError.keyDoesNotExist
         }
@@ -50,13 +61,13 @@ struct LocalStorage {
     }
     
     func clear() {
-        defaults.set(nil, forKey: key)
+        defaults.set(nil, forKey: key.rawValue)
     }
     
-    func save(value: String?, expiresMinutes: Int) {
+    func save(value: APIKey?, expiresMinutes: Int) {
         
         guard let value else {
-            defaults.set(nil, forKey: key)
+            defaults.set(nil, forKey: key.rawValue)
             return
         }
         
@@ -65,7 +76,7 @@ struct LocalStorage {
             expiresMinutes: expiresMinutes
         ).encode() {
             logger.debug("SavedAPIKey key encoded, saving")
-            defaults.set(encodedSavedAPIKey, forKey: key)
+            defaults.set(encodedSavedAPIKey, forKey: key.rawValue)
         } else {
             logger.error("Can't encode, not saving key")
             assertionFailure("Can't encode")
@@ -73,7 +84,15 @@ struct LocalStorage {
     }
 }
 
-public typealias APIKey = String
+public struct APIKey: RawRepresentable, CustomStringConvertible, Sendable, Codable {
+    public let rawValue: String
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+    public var description: String {
+        rawValue
+    }
+}
 
 /**
   ```swift
@@ -86,8 +105,7 @@ public typealias APIKey = String
 public actor APIKeyReader {
     let log = Log.logger
 
-    private let userDefaults = UserDefaults.standard
-    private let apiKeyCloudKit: APIKeyCloudKit
+    private let apiKeyCloudKit: CloudKitKeyProvider
 
     /// Default shared instance.
     /// Having one instance can help if the key is being refreshed and accessed close to the same time
@@ -101,11 +119,13 @@ public actor APIKeyReader {
         return _shared
     }
     
-    public static func configure(apiKeyCloudKit: APIKeyCloudKit) {
-        _shared = .init(apiKeyCloudKit: apiKeyCloudKit)
+    public static func configure(containerIdentifier: String) {
+        _shared = .init(
+            apiKeyCloudKit: .init(containerIdentifier: containerIdentifier)
+        )
     }
 
-    private init(apiKeyCloudKit: APIKeyCloudKit) {
+    private init(apiKeyCloudKit: CloudKitKeyProvider) {
         self.apiKeyCloudKit = apiKeyCloudKit
     }
 
@@ -125,13 +145,13 @@ public actor APIKeyReader {
     public func apiKey(
         named apiKeyName: APIKeyName,
         expiresMinutes: Int
-    ) async throws -> String {
+    ) async throws -> APIKey {
         let log = log
 
         log.debug("Fetching APIKey: \(apiKeyName)")
         
         // We can fallback to this if we have errors loading from CloudKit
-        let expiredKey: String?
+        let expiredKey: APIKey?
         
         let localStorage = LocalStorage(key: apiKeyName)
         
@@ -163,7 +183,7 @@ public actor APIKeyReader {
         keyFetchTask[apiKeyName] = nil
         return key
 
-        func taskFor(_ apiKeyName: APIKeyName) -> Task<String, Error> {
+        func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
             
             if let inProgressTask = keyFetchTask[apiKeyName] {
                 log.debug("Returning existing task")
@@ -179,7 +199,7 @@ public actor APIKeyReader {
             return newTask
         }
         
-        func fetchKey(task: Task<String, Error>) async throws -> String {
+        func fetchKey(task: Task<APIKey, Error>) async throws -> APIKey {
             do {
                 return try await task.value
             } catch {

@@ -13,10 +13,7 @@ import SwiftUI
 struct TestAppApp: App {
     init() {
         APIKeyReader.configure(
-            apiKeyCloudKit:
-                    .init(
-                        containerIdentifier: "iCloud.com.spearware.Klimate"
-                    )
+            containerIdentifier: "iCloud.com.spearware.Klimate"
         )
     }
     var body: some Scene {

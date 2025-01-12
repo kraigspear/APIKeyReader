@@ -9,11 +9,11 @@ import Foundation
 import CloudKit
 
 struct SavedAPIKey: Codable {
-    let key: String
+    let key: APIKey
     let updated: Date
     let expiresMinutes: Int
     
-    init(key: String,
+    init(key: APIKey,
          expiresMinutes: Int) {
         self.key = key
         self.expiresMinutes = expiresMinutes
