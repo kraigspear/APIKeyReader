@@ -98,27 +98,6 @@ public struct APIKeyCloudKit: Sendable {
     }
 
     /**
-     Subscribe to changes from CloudKit.
-     If the key changes, we want to be informed without having to Query CloudKit each time
-     - parameter apiKeyName: The name of the key to subscribe to changes
-     - returns: The `CKSubscription.ID` of the subscription on success
-     - throws: Exception from CloudKit if the subscription can't be created
-     */
-    public func subscribeToCloudKitChanges(apiKeyName: APIKeyName) async throws -> CKSubscription.ID {
-        let subscription = CKQuerySubscription(recordType: recordType,
-                                               predicate: predicateForKey(apiKeyName),
-                                               options: [.firesOnRecordUpdate, .firesOnRecordCreation])
-
-        let notificationInfo = CKSubscription.NotificationInfo()
-        notificationInfo.shouldSendContentAvailable = true
-        subscription.notificationInfo = notificationInfo
-
-        let savedSubscription = try await database.save(subscription)
-        log.debug("Subscribed to CloudKit for KeyChanges")
-        return savedSubscription.subscriptionID
-    }
-
-    /**
      Called when a silent CloudKit push is received to trigger
      getting a refreshed API Key
 

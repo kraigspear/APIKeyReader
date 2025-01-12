@@ -9,9 +9,11 @@ import Combine
 import Foundation
 import os
 
-private enum Log {
-    static let logger = os.Logger(subsystem: "com.spearware.foundation", category: "🔑APIKey")
+enum Log {
+    static let logger = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
 }
+
+private let logger = Log.logger
 
 /**
  Keys coming from CloudKit
@@ -29,7 +31,21 @@ public enum APIKeyName: String, CustomStringConvertible, Sendable {
      - returns: Key if exist or nil
      */
     func load(from defaults: UserDefaults) -> String? {
-        defaults.string(forKey: rawValue)
+        guard let data = defaults.data(forKey: rawValue) else {
+            logger.debug("\(rawValue) doesn't exist in defaults")
+            return nil
+        }
+        logger.debug("Found \(rawValue) in defaults")
+        if let savedAPIKey = try? SavedAPIKey.decode(data) {
+            if savedAPIKey.expired {
+                logger.debug("APIKey is expired, setting to nil")
+                save(to: defaults, value: nil)
+            }
+            logger.debug("APIKey is fresh, returning")
+            return savedAPIKey.key
+        }
+        logger.error("Wasn't able to decode SavedAPIKey")
+        return nil
     }
 
     /**
@@ -38,7 +54,18 @@ public enum APIKeyName: String, CustomStringConvertible, Sendable {
      - parameter value: Value to save
      */
     func save(to defaults: UserDefaults, value: String?) {
-        defaults.set(value, forKey: rawValue)
+        guard let value else {
+            defaults.set(nil, forKey: rawValue)
+            return
+        }
+        
+        if let encodedSavedAPIKey = try? SavedAPIKey(key: value).encode() {
+            logger.debug("SavedAPIKey key encoded, saving")
+            defaults.set(encodedSavedAPIKey, forKey: rawValue)
+        } else {
+            logger.error("Can't encode, not saving key")
+            assertionFailure("Can't encode")
+        }
     }
 }
 
@@ -70,10 +97,8 @@ public actor APIKeyReader {
         return _shared
     }
     
-    public static func configure(apiKeyCloudKit: APIKeyCloudKit) -> APIKeyReader {
-        if let _shared { return _shared }
+    public static func configure(apiKeyCloudKit: APIKeyCloudKit) {
         _shared = .init(apiKeyCloudKit: apiKeyCloudKit)
-        return _shared!
     }
 
     private init(apiKeyCloudKit: APIKeyCloudKit) {
@@ -104,100 +129,34 @@ public actor APIKeyReader {
         }
 
         log.debug("Key not found in defaults for: \(apiKeyName.rawValue)")
-
-        if let key = try await checkExistingKeyTask() {
-            return key
-        }
-
-        func checkExistingKeyTask() async throws -> String? {
-            // 1. If there is an existing key, meaning has a task been started to fetch this key
-            //   CloudKit yet?
-            //
-            // 2. Check if this task is in progress, or has finished.
-            // 2a. If the task is in progress, wait for it to complete
-            // 2b. Save the key to defaults, so that it can be uses later, avoid fetching again
-            //
-            // 3.  If the key has been fetched already, return the key
-
-            guard let existingKey = keyFetchState[apiKeyName] else { return nil }
-            log.debug("Existing key: \(apiKeyName)")
-
-            // 2.
-            switch existingKey {
-            case let .inProgress(task):
-                log.debug("In progress, awaiting key: \(apiKeyName)")
-                // 2a.
-                let fetchedAPIKey = try await task.value
-                apiKeyName.save(to: userDefaults, value: fetchedAPIKey)
-
-                do {
-                    let subscriptionID = try await apiKeyCloudKit.subscribeToCloudKitChanges(apiKeyName: apiKeyName)
-                    log.debug("Success subscribing to CloudKit changes")
-                    // 2b.
-                    subscriptionKey = subscriptionID
-                } catch {
-                    subscriptionKey = nil
-                    log.error("Failed to subscribe to cloudKit changes: \(error.localizedDescription)")
-                }
-
-                log.debug("Finished, awaiting key: \(fetchedAPIKey)")
-                return fetchedAPIKey
-            case let .finished(apiKey):
-                // 3.
-                log.debug("Key is ready, checking freshness key: \(apiKey)")
-                apiKeyName.save(to: userDefaults, value: apiKey)
-                return apiKey
-            }
-        }
         
-        func startFetchTask() async throws -> String {
-            let fetchTask = Task {
+        let task = taskFor(apiKeyName)
+        
+        do {
+            let key = try await task.value
+            apiKeyName.save(to: userDefaults, value: key)
+            keyFetchState[apiKeyName] = nil
+            return key
+        } catch {
+            keyFetchState[apiKeyName] = nil
+            throw error
+        }
+
+        func taskFor(_ apiKeyName: APIKeyName) -> Task<String, Error> {
+            
+            if case let .inProgress(inProgressTask) = keyFetchState[apiKeyName] {
+                log.debug("Returning existing task")
+                return inProgressTask
+            }
+            
+            log.debug("Starting new task")
+            let newTask = Task {
                 try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
             }
-
-            keyFetchState[apiKeyName] = .inProgress(fetchTask)
-            log.debug("keys: \(apiKeyName.rawValue) to: inProgress")
-
-            do {
-                log.debug("Awaiting fetch task in DO block: \(apiKeyName)")
-                // 3.
-                let apiKeyValue = try await fetchTask.value
-                log.debug("Finished fetch task: \(apiKeyName)")
-                log.debug("keys: \(apiKeyName.rawValue) to: ready")
-                // 4.
-                keyFetchState[apiKeyName] = .finished(apiKeyValue)
-                log.debug("Returning key: \(apiKeyName) in DO block")
-                return apiKeyValue
-            } catch {
-                log.error("Error for key: \(apiKeyName) error: \(error.localizedDescription)")
-                // 5.
-                keyFetchState[apiKeyName] = nil
-                throw error
-            }
+            
+            keyFetchState[apiKeyName] = .inProgress(newTask)
+            return newTask
         }
-
-        return try await startFetchTask()
-    }
-
-    /**
-     Called from App 'appDelegate.didReceiveRemoteNotification'
-     To handle a silent push, needing to refresh an API key from CloudKit
-
-     - parameter userInfo: Dictionary with information about the push notification. Passed directly from didReceiveRemoteNotification
-     */
-    public func refreshKey(_ keyRefreshInfo: KeyRefreshInfo) async throws {
-        log.debug("refreshKey with recordID: \(keyRefreshInfo.recordID)")
-
-        let newKey = try await apiKeyCloudKit.fetchNewKey(for: keyRefreshInfo.recordID)
-        log.debug("NewKey retrieved from CloudKit named: \(newKey.name)")
-
-        guard let apiKeyName = APIKeyName(rawValue: newKey.name) else {
-            assertionFailure("Retrieved a key from CouldKit not found in APIKeyName")
-            return
-        }
-
-        apiKeyName.save(to: userDefaults, value: newKey.key)
-        log.info("NewKey saved: \(newKey.name)")
     }
 
     // MARK: - APIKeyFetchState
@@ -223,11 +182,4 @@ public actor APIKeyReader {
 
     /// Stores the fetch state for key fetches
     private var keyFetchState: [APIKeyName: APIKeyFetchState] = [:]
-
-    // MARK: - Defaults
-
-    private var subscriptionKey: String? {
-        get { userDefaults.string(forKey: #function) }
-        set { userDefaults.set(newValue, forKey: #function) }
-    }
 }
