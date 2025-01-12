@@ -160,12 +160,12 @@ public actor APIKeyReader {
             expiresMinutes: expiresMinutes
         )
         
-        keyFetchState[apiKeyName] = nil
+        keyFetchTask[apiKeyName] = nil
         return key
 
         func taskFor(_ apiKeyName: APIKeyName) -> Task<String, Error> {
             
-            if case let .inProgress(inProgressTask) = keyFetchState[apiKeyName] {
+            if let inProgressTask = keyFetchTask[apiKeyName] {
                 log.debug("Returning existing task")
                 return inProgressTask
             }
@@ -175,7 +175,7 @@ public actor APIKeyReader {
                 try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
             }
             
-            keyFetchState[apiKeyName] = .inProgress(newTask)
+            keyFetchTask[apiKeyName] = newTask
             return newTask
         }
         
@@ -183,7 +183,7 @@ public actor APIKeyReader {
             do {
                 return try await task.value
             } catch {
-                keyFetchState[apiKeyName] = nil
+                keyFetchTask[apiKeyName] = nil
                 
                 log.error("Error fetching new key: \(error)")
                 
@@ -198,27 +198,6 @@ public actor APIKeyReader {
         }
     }
 
-    // MARK: - APIKeyFetchState
-
-    /**
-     The state of any task fetching a Key
-     */
-    private enum APIKeyFetchState: CustomStringConvertible {
-        /// The task is currently fetching a key
-        case inProgress(Task<APIKey, Error>)
-        /// The task has completed for the given key
-        case finished(APIKey)
-
-        var description: String {
-            switch self {
-            case .inProgress:
-                "inProgress"
-            case .finished:
-                "finished"
-            }
-        }
-    }
-
     /// Stores the fetch state for key fetches
-    private var keyFetchState: [APIKeyName: APIKeyFetchState] = [:]
+    private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
 }

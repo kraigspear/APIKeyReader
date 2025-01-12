@@ -79,7 +79,7 @@ public struct APIKeyCloudKit: Sendable {
                     return try await database.records(matching: query).matchResults.first?.1
                 } catch let error as CKError {
                     if error.code == .networkFailure || error.code == .networkUnavailable {
-                        throw FetchKeyError.recordNotFound
+                        throw FetchKeyError.networkUnavailable
                     } else {
                         throw FetchKeyError.cloudKitError(error: error)
                     }
