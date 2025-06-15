@@ -30,7 +30,7 @@ struct ContentView: View {
                 }
                 Button("Test multiple calls") {
                     Task {
-                        let apiKeyReader = APIKeyReader.shared
+                        let apiKeyReader = await APIKeyReader.shared
 
                         try await withThrowingTaskGroup(of: APIKey.self) { group in
                             for _ in 0 ..< 10 {

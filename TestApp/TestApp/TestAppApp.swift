@@ -12,9 +12,11 @@ import SwiftUI
 @main
 struct TestAppApp: App {
     init() {
-        APIKeyReader.configure(
-            containerIdentifier: "iCloud.com.spearware.Klimate"
-        )
+        Task {
+            await APIKeyReader.configure(
+                containerIdentifier: "iCloud.com.spearware.Klimate"
+            )
+        }
     }
 
     var body: some Scene {
