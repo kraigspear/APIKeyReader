@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var testResult = "Empty"
+    @Environment(APIKeyReader.self) var apiKeyReader
     private let keyName = APIKeyName(rawValue: "rainviewer")
 
     var body: some View {
@@ -19,7 +20,7 @@ struct ContentView: View {
                 Button("Test Fetch Key") {
                     Task {
                         do {
-                            testResult = try await APIKeyReader.shared.apiKey(
+                            testResult = try await apiKeyReader.apiKey(
                                 named: keyName,
                                 expiresMinutes: 1
                             ).rawValue
@@ -30,7 +31,7 @@ struct ContentView: View {
                 }
                 Button("Test multiple calls") {
                     Task {
-                        let apiKeyReader = await APIKeyReader.shared
+                        let apiKeyReader = self.apiKeyReader
 
                         try await withThrowingTaskGroup(of: APIKey.self) { group in
                             for _ in 0 ..< 10 {
@@ -56,7 +57,7 @@ struct ContentView: View {
                 Button("Key does't exist") {
                     Task {
                         do {
-                            testResult = try await APIKeyReader.shared.apiKey(
+                            testResult = try await apiKeyReader.apiKey(
                                 named: .init(rawValue: "missingKey"),
                                 expiresMinutes: 1
                             ).rawValue

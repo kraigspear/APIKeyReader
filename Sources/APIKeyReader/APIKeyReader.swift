@@ -42,94 +42,35 @@ typealias FetchKeyTask = Task<APIKey, Error>
 /// - Automatic fallback to expired keys during network failures
 /// - Thread-safe access through Swift's actor model
 ///
-/// ## Configuration
+/// ## Initialization
 ///
-/// Before using the shared instance, you must configure it with your CloudKit container:
+/// Create an instance with your CloudKit container identifier:
 ///
 /// ```swift
-/// await APIKeyReader.configure(containerIdentifier: "iCloud.com.example.app")
+/// let apiKeyReader = APIKeyReader(containerIdentifier: "iCloud.com.example.app")
 /// ```
 ///
 /// ## Usage
 ///
 /// ```swift
-/// let apiKey = try await APIKeyReader.shared.apiKey(
+/// let apiKey = try await apiKeyReader.apiKey(
 ///     named: .openWeatherMap,
 ///     expiresMinutes: 60
 /// )
 /// ```
-public actor APIKeyReader {
+public actor APIKeyReader: Observable {
     // MARK: - Properties
     
     let log = Log.logger
     private let apiKeyCloudKit: CloudKitKeyProvider
     
+    public init(containerIdentifier: String) {
+        self.apiKeyCloudKit = .init(containerIdentifier: containerIdentifier)
+    }
+    
     /// Stores the fetch state for key fetches to prevent duplicate requests
     private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
     
-    // MARK: - Shared Instance Management
-    
-    /// Thread-safe state management for the shared instance
-    private actor SharedState {
-        private var _instance: APIKeyReader?
-        
-        func configure(containerIdentifier: String) {
-            _instance = .init(
-                apiKeyCloudKit: .init(containerIdentifier: containerIdentifier)
-            )
-        }
-        
-        var instance: APIKeyReader? {
-            _instance
-        }
-    }
-    
-    private static let _shared = SharedState()
-
-    /// The shared instance of APIKeyReader.
-    ///
-    /// - Important: You must call ``configure(containerIdentifier:)`` before accessing this property.
-    /// - Note: This property uses async access to ensure thread safety.
-    public static var shared: APIKeyReader {
-        get async {
-            guard let instance = await _shared.instance else {
-                Log.logger.fault("Please call configure first")
-                fatalError("Please call configure first")
-            }
-            return instance
-        }
-    }
-
-    /// Configures the shared APIKeyReader instance with a CloudKit container identifier.
-    ///
-    /// This method must be called before using the ``shared`` instance, typically during app initialization.
-    ///
-    /// - Parameter containerIdentifier: The CloudKit container identifier (e.g., "iCloud.com.example.app")
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// @main
-    /// struct MyApp: App {
-    ///     init() {
-    ///         Task {
-    ///             await APIKeyReader.configure(
-    ///                 containerIdentifier: "iCloud.com.example.app"
-    ///             )
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    public static func configure(containerIdentifier: String) async {
-        await _shared.configure(containerIdentifier: containerIdentifier)
-    }
-
-    // MARK: - Initialization
-    
-    private init(apiKeyCloudKit: CloudKitKeyProvider) {
-        self.apiKeyCloudKit = apiKeyCloudKit
-    }
-
     // MARK: - Public Methods
     
     /// Retrieves an API key by name, with caching and automatic CloudKit fetching.
@@ -149,13 +90,13 @@ public actor APIKeyReader {
     /// - Throws:
     ///   - `FetchKeyError.networkUnavailable`: Network is not available and no cached key exists
     ///   - `FetchKeyError.recordNotFound`: Key doesn't exist in CloudKit
-    ///   - `FetchKeyError.notConfigured`: APIKeyReader hasn't been configured
+    ///   - Other CloudKit-related errors
     ///
     /// ## Example
     ///
     /// ```swift
     /// do {
-    ///     let apiKey = try await APIKeyReader.shared.apiKey(
+    ///     let apiKey = try await apiKeyReader.apiKey(
     ///         named: .openWeatherMap,
     ///         expiresMinutes: 60
     ///     )

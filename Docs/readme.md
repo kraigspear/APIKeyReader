@@ -17,8 +17,8 @@ classDiagram
     class APIKeyReader {
         -CloudKitKeyProvider apiKeyCloudKit
         -Dictionary keyFetchTask
+        +init(containerIdentifier: String)
         +apiKey(named: APIKeyName, expiresMinutes: Int) APIKey
-        +configure(containerIdentifier: String)
     }
     
     class CloudKitKeyProvider {
@@ -121,7 +121,8 @@ The main entry point for the API key management system. It's implemented as an a
 
 ```swift
 // Usage example
-let apiKey = try await APIKeyReader.shared.apiKey(
+let apiKeyReader = APIKeyReader(containerIdentifier: "iCloud.com.your.container")
+let apiKey = try await apiKeyReader.apiKey(
     named: .openWeatherMap,
     expiresMinutes: 60
 )
@@ -174,16 +175,16 @@ enum LoadError: Error {
 
 ## Best Practices
 
-1. **Configuration**:
+1. **Initialization**:
    ```swift
-   // Configure before using
-   APIKeyReader.configure(containerIdentifier: "iCloud.com.your.container")
+   // Create an instance with your container identifier
+   let apiKeyReader = APIKeyReader(containerIdentifier: "iCloud.com.your.container")
    ```
 
 2. **Error Handling**:
    ```swift
    do {
-       let key = try await APIKeyReader.shared.apiKey(
+       let key = try await apiKeyReader.apiKey(
            named: .myAPIKey,
            expiresMinutes: 60
        )

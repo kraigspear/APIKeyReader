@@ -55,22 +55,26 @@ In CloudKit Dashboard:
 3. Set the `name` field (e.g., "openWeatherMap")
 4. Set the `key` field to your actual API key
 
-### 3. Configure APIKeyReader
+### 3. Initialize APIKeyReader
 
 ```swift
 import APIKeyReader
+import SwiftUI
 
 @main
 struct MyApp: App {
+    @State private var apiKeyReader: APIKeyReader
+    
     init() {
-        APIKeyReader.configure(
-            containerIdentifier: "iCloud.com.yourcompany.yourapp"
+        _apiKeyReader = State(
+            initialValue: APIKeyReader(containerIdentifier: "iCloud.com.yourcompany.yourapp")
         )
     }
     
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(apiKeyReader)
         }
     }
 }
@@ -92,36 +96,46 @@ extension APIKeyName {
 ### Fetch API Keys
 
 ```swift
-do {
-    let apiKey = try await APIKeyReader.shared.apiKey(
-        named: .openWeatherMap,
-        expiresMinutes: 60  // Cache for 60 minutes
-    )
+struct ContentView: View {
+    @Environment(APIKeyReader.self) private var apiKeyReader
     
-    // Use the key
-    let url = URL(string: "https://api.openweathermap.org/data?appid=\(apiKey.rawValue)")!
-} catch {
-    print("Error fetching API key: \(error)")
+    func fetchWeatherData() async {
+        do {
+            let apiKey = try await apiKeyReader.apiKey(
+                named: .openWeatherMap,
+                expiresMinutes: 60  // Cache for 60 minutes
+            )
+            
+            // Use the key
+            let url = URL(string: "https://api.openweathermap.org/data?appid=\(apiKey.rawValue)")!
+        } catch {
+            print("Error fetching API key: \(error)")
+        }
+    }
 }
 ```
 
 ### Error Handling
 
 ```swift
-do {
-    let apiKey = try await APIKeyReader.shared.apiKey(
-        named: .myAPIKey,
-        expiresMinutes: 30
-    )
-} catch FetchKeyError.networkUnavailable {
-    // Handle offline scenario
-    print("Network unavailable, using cached key if available")
-} catch FetchKeyError.recordNotFound {
-    // Key doesn't exist in CloudKit
-    print("API key not found in CloudKit")
-} catch {
-    // Handle other errors
-    print("Error: \(error)")
+@Environment(APIKeyReader.self) private var apiKeyReader
+
+func loadAPIKey() async {
+    do {
+        let apiKey = try await apiKeyReader.apiKey(
+            named: .myAPIKey,
+            expiresMinutes: 30
+        )
+    } catch FetchKeyError.networkUnavailable {
+        // Handle offline scenario
+        print("Network unavailable, using cached key if available")
+    } catch FetchKeyError.recordNotFound {
+        // Key doesn't exist in CloudKit
+        print("API key not found in CloudKit")
+    } catch {
+        // Handle other errors
+        print("Error: \(error)")
+    }
 }
 ```
 
