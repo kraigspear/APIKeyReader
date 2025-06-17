@@ -29,8 +29,7 @@ swift test
 ### Core Components
 
 1. **APIKeyReader (Actor)** - Main entry point, manages key fetching and caching
-   - Singleton pattern with shared instance
-   - Requires configuration with CloudKit container ID
+   - Initialized with CloudKit container ID
    - Implements task deduplication to prevent duplicate fetches
 
 2. **CloudKitKeyProvider** - Fetches keys from CloudKit
@@ -56,7 +55,7 @@ The library defines specific error types:
 
 ### Usage Flow
 
-1. Configure APIKeyReader with CloudKit container ID
+1. Create APIKeyReader instance with CloudKit container ID
 2. Request key using type-safe `APIKeyName`
 3. Library checks local cache first
 4. If expired/missing, fetches from CloudKit
