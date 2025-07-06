@@ -27,7 +27,7 @@ Add APIKeyReader to your `Package.swift` dependencies:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/APIKeyReader.git", from: "1.0.0")
+    .package(url: "https://github.com/kraigspear/APIKeyReader.git", from: "1.0.0")
 ]
 ```
 
