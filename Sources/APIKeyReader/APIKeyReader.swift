@@ -27,6 +27,38 @@ protocol KeyProvider: Sendable {
 
 extension CloudKitKeyProvider: KeyProvider {}
 
+// MARK: - CachedKeyStorage
+
+/// A contract for storing and retrieving cached API keys.
+///
+/// Conforming types provide persistence for API keys with expiration-based invalidation,
+/// allowing ``APIKeyReader`` to avoid redundant CloudKit fetches.
+///
+/// - SeeAlso: ``LocalStorage`` for the Keychain-backed production implementation.
+/// - SeeAlso: ``APIKeyReader`` which uses this protocol to cache fetched keys.
+/// - SeeAlso: ``LoadError`` for errors thrown by ``load()``.
+protocol CachedKeyStorage: Sendable {
+    /// Loads the cached API key.
+    ///
+    /// - Returns: The cached API key if it exists and has not expired.
+    /// - Throws: ``LoadError/keyDoesNotExist`` if no cached key is found,
+    ///   ``LoadError/expired(_:)`` if the key exists but has expired,
+    ///   or ``LoadError/decodeError`` if the stored data is corrupted.
+    func load() throws -> APIKey
+
+    /// Removes the cached key from storage.
+    func clear()
+
+    /// Saves an API key to the cache with the given expiration.
+    ///
+    /// Passing `nil` for `value` clears the cached entry.
+    ///
+    /// - Parameters:
+    ///   - value: The API key to cache, or `nil` to clear.
+    ///   - expiresMinutes: Number of minutes until the cached key expires.
+    func save(value: APIKey?, expiresMinutes: Int)
+}
+
 // MARK: - APIKeyReader
 
 /// An actor that manages API keys by fetching them from CloudKit and caching them locally.
@@ -63,13 +95,19 @@ public actor APIKeyReader: Observable {
 
     let log = Log.logger
     private let keyProvider: any KeyProvider
+    private let localStorageFactory: @Sendable (APIKeyName) -> any CachedKeyStorage
 
     public init(containerIdentifier: String) {
         keyProvider = CloudKitKeyProvider(containerIdentifier: containerIdentifier)
+        localStorageFactory = { LocalStorage(key: $0) }
     }
 
-    init(keyProvider: any KeyProvider) {
+    init(
+        keyProvider: any KeyProvider,
+        localStorageFactory: @escaping @Sendable (APIKeyName) -> any CachedKeyStorage = { LocalStorage(key: $0) },
+    ) {
         self.keyProvider = keyProvider
+        self.localStorageFactory = localStorageFactory
     }
 
     /// Stores the fetch state for key fetches to prevent duplicate requests
@@ -81,7 +119,7 @@ public actor APIKeyReader: Observable {
     ///
     /// - Parameter apiKeyName: The name of the API key to clear
     public func clearCache(for apiKeyName: APIKeyName) {
-        LocalStorage(key: apiKeyName).clear()
+        localStorageFactory(apiKeyName).clear()
     }
 
     /// Retrieves an API key by name, with caching and automatic CloudKit fetching.
@@ -127,22 +165,24 @@ public actor APIKeyReader: Observable {
         // We can fallback to this if we have errors loading from CloudKit
         let expiredKey: APIKey?
 
-        let localStorage = LocalStorage(key: apiKeyName)
+        let localStorage = localStorageFactory(apiKeyName)
 
         do {
             return try localStorage.load()
-        } catch LoadError.decodeError {
-            expiredKey = nil
-            localStorage.clear()
-        } catch let LoadError.expired(key) {
-            logger.debug("key is expired")
-            expiredKey = key
-        } catch LoadError.keyDoesNotExist {
-            expiredKey = nil
+        } catch let loadError as LoadError {
+            switch loadError {
+            case .decodeError:
+                expiredKey = nil
+                localStorage.clear()
+            case let .expired(key):
+                logger.debug("key is expired")
+                expiredKey = key
+            case .keyDoesNotExist:
+                expiredKey = nil
+            }
         } catch {
-            expiredKey = nil
-            assertionFailure("Unknown error")
-            logger.error("Unhandled error")
+            log.error("Unexpected local storage error: \(String(describing: error), privacy: .public)")
+            throw error
         }
 
         log.debug("Key not found or expired in defaults for: \(apiKeyName)")
