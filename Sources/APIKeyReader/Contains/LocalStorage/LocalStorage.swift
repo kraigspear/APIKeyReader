@@ -3,7 +3,7 @@ import Security
 
 private let logger = Log.logger
 
-struct LocalStorage {
+struct LocalStorage: CachedKeyStorage {
     private let key: APIKeyName
 
     init(key: APIKeyName) {

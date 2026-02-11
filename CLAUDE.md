@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-APIKeyReader is a Swift Package Manager library for iOS/macOS that manages API keys by fetching them from CloudKit and caching them locally. It uses modern Swift concurrency features and requires Swift 6.0+.
+APIKeyReader is a Swift Package Manager library for iOS/macOS that manages API keys by fetching them from CloudKit and caching them locally. It uses modern Swift concurrency features and requires Swift 6.2+.
 
 ## Development Commands
 
 ### Code Formatting
 ```bash
 ./formatcode.sh
-# Or manually: swiftformat . --indent 4 --swiftversion 6.0 --disable wrapMultilineStatementBraces
+# Or manually: swiftformat . --indent 4 --swiftversion 6.2 --disable wrapMultilineStatementBraces
 ```
 
 ### Building
@@ -64,6 +64,6 @@ The library defines specific error types:
 ## Important Notes
 
 - Always run `swiftformat` before committing changes
-- The library supports iOS 18+ and macOS 15+
+- The library supports iOS 26+ and macOS 26+
 - TestApp directory contains a sample implementation
 - All CloudKit operations are abstracted through the provider pattern

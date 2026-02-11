@@ -14,10 +14,10 @@ A Swift library for securely managing API keys using CloudKit, with intelligent 
 
 ## Requirements
 
-- iOS 18.0+
-- macOS 15.0+
-- Swift 6.0+
-- Xcode 16.0+
+- iOS 26.0+
+- macOS 26.0+
+- Swift 6.2+
+- Xcode 26.0+
 
 ## Installation
 

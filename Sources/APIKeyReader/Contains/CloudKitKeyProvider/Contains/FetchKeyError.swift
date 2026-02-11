@@ -3,7 +3,7 @@ import Foundation
 /**
  An error was encountered when fetching a new Key
  **/
-enum FetchKeyError: LocalizedError {
+public enum FetchKeyError: LocalizedError {
     /// Attempt to read a field from CloudKit. The field was missing or an unexpected type
     case missingField(named: String)
     /// Error from CloudKit when attempting to retrieve record
@@ -13,7 +13,7 @@ enum FetchKeyError: LocalizedError {
     /// Airplane mode or poor network
     case networkUnavailable
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case let .missingField(fieldName):
             "[Developer Error] Invalid key configuration - missing \(fieldName)"

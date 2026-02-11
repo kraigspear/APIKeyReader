@@ -9,16 +9,18 @@ private enum KeyField: String {
     /// API key value
     case key
 
+    static let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
+
     /**
      Extract the value of the key from a CKRecord
      - parameter record: The CKRecord to extract from
      - throws FetchKeyError.missingField: If the key can isn't found or the expected type
      */
     func extract(from record: CKRecord) throws -> APIKey {
-        let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
+        let log = Self.log
         let fieldName = rawValue
         if let value = record[fieldName] as? String {
-            log.debug("Field named: \(fieldName) found value of: \(value)")
+            log.debug("Field named: \(fieldName) found")
             return .init(rawValue: value)
         }
         log.error("Record was found, but not the field: \(fieldName)")
@@ -29,10 +31,10 @@ private enum KeyField: String {
 struct CloudKitKeyProvider: Sendable {
     private let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
     private let recordType = "Keys"
-    private let containerIdentifier: String
+    private let container: CKContainer
 
     init(containerIdentifier: String) {
-        self.containerIdentifier = containerIdentifier
+        self.container = CKContainer(identifier: containerIdentifier)
     }
 
     // MARK: - APIKeyCloudKitType
@@ -104,6 +106,6 @@ struct CloudKitKeyProvider: Sendable {
     }
 
     private var database: CKDatabase {
-        CKContainer(identifier: containerIdentifier).publicCloudDatabase
+        container.publicCloudDatabase
     }
 }
