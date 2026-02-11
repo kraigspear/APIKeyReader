@@ -1,12 +1,4 @@
-//
-//  ContentView.swift
-//  TestApp
-//
-//  Created by Kraig Spear on 1/10/25.
-//
-
 import APIKeyReader
-import SwiftData
 import SwiftUI
 
 struct ContentView: View {
@@ -22,7 +14,7 @@ struct ContentView: View {
                         do {
                             testResult = try await apiKeyReader.apiKey(
                                 named: keyName,
-                                expiresMinutes: 1
+                                expiresMinutes: 1,
                             ).rawValue
                         } catch {
                             testResult = error.localizedDescription
@@ -31,14 +23,14 @@ struct ContentView: View {
                 }
                 Button("Test multiple calls") {
                     Task {
-                        let apiKeyReader = self.apiKeyReader
+                        let apiKeyReader = apiKeyReader
 
                         try await withThrowingTaskGroup(of: APIKey.self) { group in
                             for _ in 0 ..< 10 {
                                 group.addTask {
                                     let key = try await apiKeyReader.apiKey(
                                         named: keyName,
-                                        expiresMinutes: 1
+                                        expiresMinutes: 1,
                                     )
                                     return key
                                 }
@@ -59,7 +51,7 @@ struct ContentView: View {
                         do {
                             testResult = try await apiKeyReader.apiKey(
                                 named: .init(rawValue: "missingKey"),
-                                expiresMinutes: 1
+                                expiresMinutes: 1,
                             ).rawValue
                         } catch {
                             testResult = error.localizedDescription
@@ -68,9 +60,34 @@ struct ContentView: View {
                 }
             }
 
-            Section("Setup") {
-                Button("Remove key from Defaults") {
-                    UserDefaults.standard.removeObject(forKey: "rainviewer")
+            Section("Cache") {
+                Button("Verify cached key") {
+                    Task {
+                        await apiKeyReader.clearCache(for: keyName)
+                        do {
+                            // Fetch from CloudKit and cache in Keychain
+                            let key = try await apiKeyReader.apiKey(
+                                named: keyName,
+                                expiresMinutes: 1,
+                            )
+                            // Read back from Keychain cache
+                            let cachedKey = try await apiKeyReader.apiKey(
+                                named: keyName,
+                                expiresMinutes: 1,
+                            )
+                            testResult = key.rawValue == cachedKey.rawValue
+                                ? "Cached: \(cachedKey.rawValue)"
+                                : "Mismatch: \(key.rawValue) vs \(cachedKey.rawValue)"
+                        } catch {
+                            testResult = error.localizedDescription
+                        }
+                    }
+                }
+                Button("Clear cached key") {
+                    Task {
+                        await apiKeyReader.clearCache(for: keyName)
+                        testResult = "Cache cleared"
+                    }
                 }
             }
             Section("Result") {

@@ -1,12 +1,13 @@
-//
-//  APIKeyName.swift
-//  APIKeyReader
-//
-//  Created by Kraig Spear on 1/12/25.
-//
-
 import Foundation
 
+/// A type-safe identifier for API keys stored in CloudKit.
+///
+/// Extend this type with static properties for compile-time key validation:
+/// ```swift
+/// extension APIKeyName {
+///     static let openWeatherMap = APIKeyName(rawValue: "OpenWeatherMap")
+/// }
+/// ```
 public struct APIKeyName: RawRepresentable, Hashable, CustomStringConvertible, Sendable {
     public let rawValue: String
     public init(rawValue: String) {

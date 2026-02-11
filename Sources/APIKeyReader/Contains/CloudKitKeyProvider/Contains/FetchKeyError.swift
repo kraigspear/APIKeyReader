@@ -1,10 +1,3 @@
-//
-//  FetchKeyError.swift
-//  APIKeyReader
-//
-//  Created by Kraig Spear on 1/12/25.
-//
-
 import Foundation
 
 /**
@@ -20,7 +13,7 @@ enum FetchKeyError: LocalizedError {
     /// Airplane mode or poor network
     case networkUnavailable
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case let .missingField(fieldName):
             "[Developer Error] Invalid key configuration - missing \(fieldName)"
