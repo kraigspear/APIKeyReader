@@ -1,10 +1,4 @@
-//
-//  APIKey.swift
-//  APIKeyReader
-//
-//  Created by Kraig Spear on 1/12/25.
-//
-
+/// A type-safe wrapper for API key string values retrieved from CloudKit.
 public struct APIKey: RawRepresentable, CustomStringConvertible, Sendable, Codable {
     public let rawValue: String
     public init(rawValue: String) {

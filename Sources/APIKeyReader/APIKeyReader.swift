@@ -1,11 +1,3 @@
-//
-//  APIKeyReader.swift
-//  Klimate
-//
-//  Created by Kraig Spear on 10/18/20.
-//
-
-import Combine
 import Foundation
 import os
 
@@ -26,6 +18,14 @@ enum LoadError: Error {
 }
 
 typealias FetchKeyTask = Task<APIKey, Error>
+
+// MARK: - KeyProvider
+
+protocol KeyProvider: Sendable {
+    func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey
+}
+
+extension CloudKitKeyProvider: KeyProvider {}
 
 // MARK: - APIKeyReader
 
@@ -60,19 +60,30 @@ typealias FetchKeyTask = Task<APIKey, Error>
 /// ```
 public actor APIKeyReader: Observable {
     // MARK: - Properties
-    
+
     let log = Log.logger
-    private let apiKeyCloudKit: CloudKitKeyProvider
-    
+    private let keyProvider: any KeyProvider
+
     public init(containerIdentifier: String) {
-        self.apiKeyCloudKit = .init(containerIdentifier: containerIdentifier)
+        keyProvider = CloudKitKeyProvider(containerIdentifier: containerIdentifier)
     }
-    
+
+    init(keyProvider: any KeyProvider) {
+        self.keyProvider = keyProvider
+    }
+
     /// Stores the fetch state for key fetches to prevent duplicate requests
     private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
-    
+
     // MARK: - Public Methods
-    
+
+    /// Removes the cached key from the Keychain.
+    ///
+    /// - Parameter apiKeyName: The name of the API key to clear
+    public func clearCache(for apiKeyName: APIKeyName) {
+        LocalStorage(key: apiKeyName).clear()
+    }
+
     /// Retrieves an API key by name, with caching and automatic CloudKit fetching.
     ///
     /// This method implements intelligent caching behavior:
@@ -107,7 +118,7 @@ public actor APIKeyReader: Observable {
     /// ```
     public func apiKey(
         named apiKeyName: APIKeyName,
-        expiresMinutes: Int
+        expiresMinutes: Int,
     ) async throws -> APIKey {
         let log = log
 
@@ -138,16 +149,11 @@ public actor APIKeyReader: Observable {
 
         let key = try await fetchKey(task: taskFor(apiKeyName))
 
-        localStorage.save(
-            value: key,
-            expiresMinutes: expiresMinutes
-        )
-
         keyFetchTask[apiKeyName] = nil
         return key
 
         // MARK: - Local Helper Functions
-        
+
         func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
             if let inProgressTask = keyFetchTask[apiKeyName] {
                 log.debug("Returning existing task")
@@ -156,7 +162,7 @@ public actor APIKeyReader: Observable {
 
             log.debug("Starting new task")
             let newTask = Task {
-                try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
+                try await keyProvider.fetchAPIKey(apiKeyName)
             }
 
             keyFetchTask[apiKeyName] = newTask
@@ -165,7 +171,12 @@ public actor APIKeyReader: Observable {
 
         func fetchKey(task: Task<APIKey, Error>) async throws -> APIKey {
             do {
-                return try await task.value
+                let freshKey = try await task.value
+                localStorage.save(
+                    value: freshKey,
+                    expiresMinutes: expiresMinutes,
+                )
+                return freshKey
             } catch {
                 keyFetchTask[apiKeyName] = nil
 

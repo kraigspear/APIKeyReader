@@ -1,11 +1,3 @@
-//
-//  SavedAPIKey.swift
-//  APIKeyReader
-//
-//  Created by Kraig Spear on 1/11/25.
-//
-
-import CloudKit
 import Foundation
 
 struct SavedAPIKey: Codable {
@@ -13,8 +5,10 @@ struct SavedAPIKey: Codable {
     let updated: Date
     let expiresMinutes: Int
 
-    init(key: APIKey,
-         expiresMinutes: Int) {
+    init(
+        key: APIKey,
+        expiresMinutes: Int,
+    ) {
         self.key = key
         self.expiresMinutes = expiresMinutes
         updated = Date()
@@ -32,7 +26,7 @@ struct SavedAPIKey: Codable {
         let minutes = Calendar.current.dateComponents(
             [.minute],
             from: updated,
-            to: Date()
+            to: Date(),
         ).minute ?? 0
         return minutes >= expiresMinutes
     }

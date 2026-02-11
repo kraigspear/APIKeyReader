@@ -1,10 +1,3 @@
-//
-//  CloudKitKeyProvider.swift
-//
-//
-//  Created by Kraig Spear on 10/27/21.
-//
-
 import CloudKit
 import Foundation
 import os
@@ -100,13 +93,13 @@ struct CloudKitKeyProvider: Sendable {
     private func queryForKey(_ apiKeyName: APIKeyName) -> CKQuery {
         CKQuery(
             recordType: recordType,
-            predicate: predicateForKey(apiKeyName)
+            predicate: predicateForKey(apiKeyName),
         )
     }
 
     private func predicateForKey(_ apiKeyName: APIKeyName) -> NSPredicate {
         NSPredicate(
-            format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName.rawValue]
+            format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName.rawValue],
         )
     }
 
