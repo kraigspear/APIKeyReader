@@ -1,72 +1,22 @@
 import Foundation
 import os
 
-// MARK: - Logging
-
-enum Log {
-    static let logger = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
-}
-
-private let logger = Log.logger
-
-// MARK: - Errors
-
-enum LoadError: Error {
-    case expired(APIKey)
-    case decodeError
-    case keyDoesNotExist
-}
-
-typealias FetchKeyTask = Task<APIKey, Error>
-
-// MARK: - KeyProvider
-
-protocol KeyProvider: Sendable {
-    func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey
-}
-
-extension CloudKitKeyProvider: KeyProvider {}
-
-// MARK: - CachedKeyStorage
-
-/// A contract for storing and retrieving cached API keys.
-///
-/// Conforming types provide persistence for API keys with expiration-based invalidation,
-/// allowing ``APIKeyReader`` to avoid redundant CloudKit fetches.
-///
-/// - SeeAlso: ``LocalStorage`` for the Keychain-backed production implementation.
-/// - SeeAlso: ``APIKeyReader`` which uses this protocol to cache fetched keys.
-/// - SeeAlso: ``LoadError`` for errors thrown by ``load()``.
-protocol CachedKeyStorage: Sendable {
-    /// Loads the cached API key.
-    ///
-    /// - Returns: The cached API key if it exists and has not expired.
-    /// - Throws: ``LoadError/keyDoesNotExist`` if no cached key is found,
-    ///   ``LoadError/expired(_:)`` if the key exists but has expired,
-    ///   or ``LoadError/decodeError`` if the stored data is corrupted.
-    func load() throws -> APIKey
-
-    /// Removes the cached key from storage.
-    func clear()
-
-    /// Saves an API key to the cache with the given expiration.
-    ///
-    /// Passing `nil` for `value` clears the cached entry.
-    ///
-    /// - Parameters:
-    ///   - value: The API key to cache, or `nil` to clear.
-    ///   - expiresMinutes: Number of minutes until the cached key expires.
-    func save(value: APIKey?, expiresMinutes: Int)
-}
-
 // MARK: - APIKeyReader
 
-/// An actor that manages API keys by fetching them from CloudKit and caching them locally.
+/// A coordinator for fetching and caching API keys.
 ///
 /// `APIKeyReader` provides a thread-safe way to retrieve API keys with intelligent caching
 /// and automatic fallback to expired keys when the network is unavailable.
 ///
+/// `APIKeyReader` conforms to `Observable` so SwiftUI and other Observation-aware
+/// views can track cache lifecycle events as part of their normal state observation model.
+///
 /// ## Overview
+///
+/// The actor model is required because ``APIKeyReader`` owns mutable concurrent state:
+/// the in-flight fetch task map (`keyFetchTask`) and the per-key storage adapter cache.
+/// Serializing mutation ensures duplicate suppression, cache consistency, and stable
+/// fallback behavior when multiple callers request the same key at once.
 ///
 /// The reader implements several key features:
 /// - Concurrent request coalescing to prevent duplicate CloudKit fetches
@@ -90,18 +40,34 @@ protocol CachedKeyStorage: Sendable {
 ///     expiresMinutes: 60
 /// )
 /// ```
+///
+/// - SeeAlso: ``APIKey``
+/// - SeeAlso: ``APIKeyName``
+/// - SeeAlso: ``FetchKeyError``
 public actor APIKeyReader: Observable {
     // MARK: - Properties
 
-    let log = Log.logger
     private let keyProvider: any KeyProvider
     private let localStorageFactory: @Sendable (APIKeyName) -> any CachedKeyStorage
+    // cleanup-review: unbounded growth is not a concern — cardinality is <10 keys,
+    // entries are lightweight structs, and clearCache(for:) removes entries on demand.
+    private var storageCache: [APIKeyName: any CachedKeyStorage] = [:]
+    /// Stores in-flight fetch tasks keyed by request name to prevent duplicate network calls.
+    private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
 
+    /// Creates an API key reader backed by CloudKit.
+    ///
+    /// - Parameter containerIdentifier: The CloudKit container identifier (e.g., `"iCloud.com.example.app"`).
+    ///   Must match a container configured in your app's CloudKit capabilities.
     public init(containerIdentifier: String) {
         keyProvider = CloudKitKeyProvider(containerIdentifier: containerIdentifier)
         localStorageFactory = { LocalStorage(key: $0) }
     }
 
+    /// Internal initializer for dependency injection in tests and custom deployments.
+    ///
+    /// This allows callers to provide alternate ``KeyProvider`` and storage factories
+    /// while keeping the actor’s concurrency and cache behavior intact.
     init(
         keyProvider: any KeyProvider,
         localStorageFactory: @escaping @Sendable (APIKeyName) -> any CachedKeyStorage = { LocalStorage(key: $0) },
@@ -110,19 +76,23 @@ public actor APIKeyReader: Observable {
         self.localStorageFactory = localStorageFactory
     }
 
-    /// Stores the fetch state for key fetches to prevent duplicate requests
-    private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
-
-    // MARK: - Public Methods
+    // MARK: - Public API
 
     /// Removes the cached key from the Keychain.
     ///
-    /// - Parameter apiKeyName: The name of the API key to clear
-    public func clearCache(for apiKeyName: APIKeyName) {
-        localStorageFactory(apiKeyName).clear()
+    /// Call this after logout, account switching, or when rotating a key to force the
+    /// next request to re-fetch from CloudKit.
+    ///
+    /// - Parameter apiKeyName: The name of the API key to clear.
+    public func clearCache(for apiKeyName: APIKeyName) async {
+        if let storage = storageCache.removeValue(forKey: apiKeyName) {
+            await storage.clear()
+        } else {
+            await localStorageFactory(apiKeyName).clear()
+        }
     }
 
-    /// Retrieves an API key by name, with caching and automatic CloudKit fetching.
+    /// Retrieves a key by name using cache-first behavior.
     ///
     /// This method implements intelligent caching behavior:
     /// 1. First checks local cache for a valid (non-expired) key
@@ -132,14 +102,17 @@ public actor APIKeyReader: Observable {
     ///
     /// - Parameters:
     ///   - apiKeyName: The name of the API key to retrieve
-    ///   - expiresMinutes: How long to cache the key locally (in minutes)
+    ///   - expiresMinutes: How long to cache the key locally (in minutes). Recommended values
+    ///     are typically **60 to 1440** depending on how frequently keys are rotated.
     ///
     /// - Returns: The requested API key
     ///
-    /// - Throws:
-    ///   - `FetchKeyError.networkUnavailable`: Network is not available and no cached key exists
-    ///   - `FetchKeyError.recordNotFound`: Key doesn't exist in CloudKit
-    ///   - Other CloudKit-related errors
+    /// - Throws: ``FetchKeyError`` with one of the following cases:
+    ///   - ``FetchKeyError/networkUnavailable``: Network is unavailable and no cached key exists.
+    ///   - ``FetchKeyError/recordNotFound``: Key doesn't exist in CloudKit.
+    ///   - ``FetchKeyError/cloudKitRestricted``: iCloud access is restricted on this device.
+    ///   - ``FetchKeyError/missingField(named:)``: CloudKit record schema is missing an expected field.
+    ///   - ``FetchKeyError/cloudKitError(error:)``: Other CloudKit operation failures.
     ///
     /// ## Example
     ///
@@ -158,78 +131,138 @@ public actor APIKeyReader: Observable {
         named apiKeyName: APIKeyName,
         expiresMinutes: Int,
     ) async throws -> APIKey {
-        let log = log
+        #if DEBUG
+        logger.debug("Fetching APIKey: \(apiKeyName, privacy: .private)")
+        #endif
 
-        log.debug("Fetching APIKey: \(apiKeyName)")
+        let localStorage = storage(for: apiKeyName)
+        let storageResult = try await cachedValue(for: localStorage, apiKeyName: apiKeyName)
 
-        // We can fallback to this if we have errors loading from CloudKit
         let expiredKey: APIKey?
+        switch storageResult {
+        case let .value(apiKey):
+            return apiKey
+        case let .expired(apiKey):
+            logger.debug("key is expired")
+            expiredKey = apiKey
+        case .missing:
+            expiredKey = nil
+        }
 
-        let localStorage = localStorageFactory(apiKeyName)
+        #if DEBUG
+        logger.debug("Key not found or expired in keychain for: \(apiKeyName, privacy: .private)")
+        #endif
 
+        return try await fetchKey(
+            task: taskFor(apiKeyName),
+            apiKeyName: apiKeyName,
+            localStorage: localStorage,
+            expiresMinutes: expiresMinutes,
+            expiredKey: expiredKey,
+        )
+    }
+
+    // MARK: - Cache Lookup
+
+    private func cachedValue(
+        for localStorage: any CachedKeyStorage,
+        apiKeyName: APIKeyName,
+    ) async throws -> CacheLookupResult {
         do {
-            return try localStorage.load()
+            return try await .value(localStorage.load())
         } catch let loadError as LoadError {
             switch loadError {
             case .decodeError:
-                expiredKey = nil
-                localStorage.clear()
+                await localStorage.clear()
+                return .missing
             case let .expired(key):
-                logger.debug("key is expired")
-                expiredKey = key
+                return .expired(key)
             case .keyDoesNotExist:
-                expiredKey = nil
+                return .missing
+            case let .keychainError(error):
+                // cleanup-review: .public is correct — error type names and OSStatus codes don't contain
+                // secrets and are needed for production diagnostics (see Doc/LoggingPrivacy.md).
+                logger.error(
+                    "Local storage read failed for \(apiKeyName, privacy: .private); falling back to provider: \(String(describing: error), privacy: .public)",
+                )
+                return .missing
             }
         } catch {
-            log.error("Unexpected local storage error: \(String(describing: error), privacy: .public)")
+            // cleanup-review: .public is correct — same rationale as above.
+            logger.error("Unexpected local storage error: \(String(describing: error), privacy: .public)")
             throw error
         }
+    }
 
-        log.debug("Key not found or expired in defaults for: \(apiKeyName)")
+    // MARK: - Task Management
 
-        let key = try await fetchKey(task: taskFor(apiKeyName))
-
-        keyFetchTask[apiKeyName] = nil
-        return key
-
-        // MARK: - Local Helper Functions
-
-        func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
-            if let inProgressTask = keyFetchTask[apiKeyName] {
-                log.debug("Returning existing task")
-                return inProgressTask
-            }
-
-            log.debug("Starting new task")
-            let newTask = Task {
-                try await keyProvider.fetchAPIKey(apiKeyName)
-            }
-
-            keyFetchTask[apiKeyName] = newTask
-            return newTask
+    private func taskFor(_ apiKeyName: APIKeyName) -> Task<APIKey, Error> {
+        if let inProgressTask = keyFetchTask[apiKeyName] {
+            logger.debug("Returning existing task")
+            return inProgressTask
         }
 
-        func fetchKey(task: Task<APIKey, Error>) async throws -> APIKey {
-            do {
-                let freshKey = try await task.value
-                localStorage.save(
-                    value: freshKey,
-                    expiresMinutes: expiresMinutes,
-                )
-                return freshKey
-            } catch {
-                keyFetchTask[apiKeyName] = nil
+        logger.debug("Starting new task")
+        let newTask = Task {
+            try await keyProvider.fetchAPIKey(apiKeyName)
+        }
 
-                log.error("Error fetching new key: \(error)")
+        keyFetchTask[apiKeyName] = newTask
+        return newTask
+    }
 
-                // If we have a previous key, and we can't get a new one
-                // we'll attempt to use it.
-                if let expiredKey {
-                    return expiredKey
-                }
+    // MARK: - Key Fetching
 
-                throw error
+    private func fetchKey(
+        task: Task<APIKey, Error>,
+        apiKeyName: APIKeyName,
+        localStorage: any CachedKeyStorage,
+        expiresMinutes: Int,
+        expiredKey: APIKey?,
+    ) async throws -> APIKey {
+        defer { keyFetchTask.removeValue(forKey: apiKeyName) }
+
+        do {
+            let freshKey = try await task.value
+            await localStorage.save(
+                value: freshKey,
+                expiresMinutes: expiresMinutes,
+            )
+            return freshKey
+        } catch let error as CancellationError {
+            throw error
+        } catch FetchKeyError.cloudKitRestricted {
+            logger.error("CloudKit is restricted for key: \(apiKeyName, privacy: .private)")
+            throw FetchKeyError.cloudKitRestricted
+        } catch {
+            logger.error("Error fetching new key: \(error)")
+
+            // If we have a previous key, and we can't get a new one
+            // we'll attempt to use it.
+            if let expiredKey {
+                return expiredKey
             }
+
+            throw error
         }
     }
+
+    private func storage(for apiKeyName: APIKeyName) -> any CachedKeyStorage {
+        if let existing = storageCache[apiKeyName] {
+            return existing
+        }
+        let newStorage = localStorageFactory(apiKeyName)
+        storageCache[apiKeyName] = newStorage
+        return newStorage
+    }
+}
+
+// MARK: - Supporting Types
+
+private let logger = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
+
+private enum CacheLookupResult {
+    case value(APIKey)
+    case expired(APIKey)
+    case missing
 }

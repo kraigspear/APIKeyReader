@@ -47,23 +47,10 @@ Actor isolation provides:
 
 ### Task Deduplication via Dictionary
 
-Concurrent requests for the same key share a single CloudKit fetch task:
-
-```swift
-private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
-
-func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
-    if let inProgressTask = keyFetchTask[apiKeyName] {
-        return inProgressTask  // Multiple callers await same Task
-    }
-
-    let newTask = Task {
-        try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
-    }
-    keyFetchTask[apiKeyName] = newTask
-    return newTask
-}
-```
+Concurrent requests for the same key share a single CloudKit fetch task internally.
+The actor keeps a `keyFetchTask` dictionary, so repeated requests for the same key
+while a fetch is in progress attach to the same task instead of launching extra
+CloudKit lookups.
 
 This pattern prevents CloudKit query storms during app launch when multiple views might request the same key simultaneously. Without deduplication:
 
@@ -110,17 +97,15 @@ The Observable conformance provides:
 - Integration with SwiftUI's dependency injection
 - Compatibility with `@Environment` and `@State`
 
-### Local Helper Functions for Cohesion
+### Internal Fetch Helpers
 
-The `apiKey(named:expiresMinutes:)` method uses local function declarations:
+`apiKey(named:expiresMinutes:)` coordinates cache reads, transient fallback, and task coordination through small private helper methods.
 
 ```swift
-public func apiKey(named apiKeyName: APIKeyName, expiresMinutes: Int) async throws -> APIKey {
-    // ... main logic ...
-
-    func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask { }
-    func fetchKey(task: Task<APIKey, Error>) async throws -> APIKey { }
-}
+public func apiKey(
+    named apiKeyName: APIKeyName,
+    expiresMinutes: Int,
+) async throws -> APIKey
 ```
 
 This pattern keeps related logic together while avoiding:
@@ -183,6 +168,16 @@ struct WeatherView: View {
                 }
             }
     }
+}
+```
+
+### Cache Clearing
+
+```swift
+@Environment(APIKeyReader.self) private var apiKeyReader
+
+func rotateCredential() async {
+    await apiKeyReader.clearCache(for: .openWeatherMap)
 }
 ```
 

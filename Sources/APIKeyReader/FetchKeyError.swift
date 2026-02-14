@@ -1,8 +1,11 @@
 import Foundation
 
-/**
- An error was encountered when fetching a new Key
- **/
+/// An error encountered while fetching an API key.
+///
+/// Use this type to distinguish expected CloudKit and network failures from
+/// configuration issues.
+///
+/// - SeeAlso: ``APIKeyReader``
 public enum FetchKeyError: LocalizedError {
     /// Attempt to read a field from CloudKit. The field was missing or an unexpected type
     case missingField(named: String)
@@ -10,19 +13,23 @@ public enum FetchKeyError: LocalizedError {
     case cloudKitError(error: Error)
     /// Attempt to read a record from CloudKit that is expected to exist
     case recordNotFound
+    /// iCloud access is restricted on this device (for example by MDM or parental controls).
+    case cloudKitRestricted
     /// Airplane mode or poor network
     case networkUnavailable
 
     public var errorDescription: String? {
         switch self {
         case let .missingField(fieldName):
-            "[Developer Error] Invalid key configuration - missing \(fieldName)"
+            String(format: Strings.FetchKeyError.missingField, fieldName)
         case let .cloudKitError(error):
-            "CloudKit operation failed: \(error.localizedDescription)"
+            String(format: Strings.FetchKeyError.cloudKitError, error.localizedDescription)
         case .recordNotFound:
-            "[Developer Error] Invalid Configuration Key was not found"
+            Strings.FetchKeyError.recordNotFound
+        case .cloudKitRestricted:
+            Strings.FetchKeyError.cloudKitRestricted
         case .networkUnavailable:
-            "Unable to fetch API key: Please check your internet connection and try again"
+            Strings.FetchKeyError.networkUnavailable
         }
     }
 }

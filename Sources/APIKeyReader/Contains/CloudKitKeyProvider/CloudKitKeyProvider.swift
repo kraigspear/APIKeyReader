@@ -2,110 +2,227 @@ import CloudKit
 import Foundation
 import os
 
-/// Name of fields in the Keys table
-private enum KeyField: String {
-    /// Name of the API Key
-    case name
-    /// API key value
-    case key
+// cleanup-review: ~225 lines is appropriate — single responsibility (fetch + retry + error mapping),
+// clear MARK sections, and extracting inner helpers would add indirection without reducing complexity.
 
-    static let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
-
-    /**
-     Extract the value of the key from a CKRecord
-     - parameter record: The CKRecord to extract from
-     - throws FetchKeyError.missingField: If the key can isn't found or the expected type
-     */
-    func extract(from record: CKRecord) throws -> APIKey {
-        let log = Self.log
-        let fieldName = rawValue
-        if let value = record[fieldName] as? String {
-            log.debug("Field named: \(fieldName) found")
-            return .init(rawValue: value)
-        }
-        log.error("Record was found, but not the field: \(fieldName)")
-        throw FetchKeyError.missingField(named: fieldName)
-    }
-}
-
+/// Fetches API keys from a CloudKit public database.
+///
+/// Queries the `Keys` record type for a record whose `name` field matches
+/// the requested ``APIKeyName``, then extracts the `key` field value.
+/// Before every query the provider verifies iCloud account access, throwing
+/// ``FetchKeyError/cloudKitRestricted`` when the device cannot reach CloudKit
+/// at all (e.g., MDM policy or parental controls).
+///
+/// Transient CloudKit errors (network failures, rate limiting, service unavailability)
+/// are mapped to ``FetchKeyError/networkUnavailable``. Rate-limited requests are
+/// retried once using the server-provided `CKErrorRetryAfterKey` interval.
+///
+/// - SeeAlso: ``KeyProvider`` for the protocol this type conforms to.
+/// - SeeAlso: ``APIKeyReader`` which owns this provider and adds caching on top.
+/// - SeeAlso: ``FetchKeyError`` for the error types this provider throws.
 struct CloudKitKeyProvider: Sendable {
-    private let log = os.Logger(subsystem: "com.spearware.foundation", category: "☁️CloudKit")
-    private let recordType = "Keys"
-    private let container: CKContainer
+    // MARK: - Properties
 
+    private static let log = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "☁️CloudKit")
+    private let recordType = "Keys"
+    private let maxRetryDelaySeconds: TimeInterval = 30
+    private let accountStatusProvider: @Sendable () async throws -> CKAccountStatus
+    private let queryProvider: @Sendable (CKQuery) async throws -> Result<CKRecord, any Error>?
+
+    // MARK: - Initialization
+
+    /// Creates a provider bound to the given CloudKit container.
+    ///
+    /// - Parameter containerIdentifier: The CloudKit container identifier
+    ///   (e.g., `"iCloud.com.example.app"`).
     init(containerIdentifier: String) {
-        self.container = CKContainer(identifier: containerIdentifier)
+        self.init(
+            containerIdentifier: containerIdentifier,
+            accountStatusProvider: { try await $0.accountStatus() },
+            queryProvider: { database, query in
+                try await database.records(matching: query, resultsLimit: 1).matchResults.first?.1
+            },
+        )
     }
 
-    // MARK: - APIKeyCloudKitType
+    init(
+        containerIdentifier: String,
+        accountStatusProvider: @escaping @Sendable (CKContainer) async throws -> CKAccountStatus,
+        queryProvider: @escaping @Sendable (CKDatabase, CKQuery) async throws -> Result<CKRecord, any Error>?,
+    ) {
+        let container = CKContainer(identifier: containerIdentifier)
+        let database = container.publicCloudDatabase
+        self.accountStatusProvider = { try await accountStatusProvider(container) }
+        self.queryProvider = { query in
+            try await queryProvider(database, query)
+        }
+    }
 
-    /**
-     Fetches an API Key from CloudKit
-     - parameter named: Name of the key to fetch from CloudKit
-     - returns: API key for a given name
-     - throws FetchKeyError.cloudKitError: If CloudKit throws an error
-     */
+    init(
+        accountStatusProvider: @escaping @Sendable () async throws -> CKAccountStatus,
+        queryProvider: @escaping @Sendable (CKQuery) async throws -> Result<CKRecord, any Error>?,
+    ) {
+        self.accountStatusProvider = accountStatusProvider
+        self.queryProvider = queryProvider
+    }
+
+    /// Fetches an API key from CloudKit's public database.
+    ///
+    /// The method first verifies that the device has iCloud access, then queries
+    /// the `Keys` record type for a matching record. Rate-limited responses are
+    /// retried once using the server-provided delay.
+    ///
+    /// - Parameter apiKeyName: The key to look up, matched against the record's `name` field.
+    /// - Returns: The ``APIKey`` read from the matching record's `key` field.
+    /// - Throws: ``FetchKeyError`` describing the failure:
+    ///   - ``FetchKeyError/cloudKitRestricted`` if iCloud is restricted on this device.
+    ///   - ``FetchKeyError/networkUnavailable`` for transient network or service errors.
+    ///   - ``FetchKeyError/recordNotFound`` if no record matches the key name.
+    ///   - ``FetchKeyError/missingField(named:)`` if the record lacks the expected `key` field.
+    ///   - ``FetchKeyError/cloudKitError(error:)`` for other CloudKit failures.
     func fetchAPIKey(_ apiKeyName: APIKeyName) async throws -> APIKey {
-        log.debug("Fetching from CloudKit Key: \(apiKeyName)")
+        Self.log.debug("Fetching from CloudKit Key: \(apiKeyName, privacy: .private)")
 
-        func performQueryReturningFirstResult() async throws -> CKRecord {
-            let query = queryForKey(apiKeyName)
-            log.debug("Performing query \(query)")
+        try await checkAccountAccess()
 
-            if let firstMatch = try await fetchFirstResult() {
-                log.debug("Finished query \(query)")
-                log.debug("Found result in CloudKit \(apiKeyName)")
+        let query = queryForKey(apiKeyName)
 
-                switch firstMatch {
-                case let .failure(error):
-                    log.error("Error fetching record: \(error.localizedDescription)")
-                    throw FetchKeyError.cloudKitError(error: error)
-                case let .success(record):
-                    return record
-                }
-            }
-
-            log.error("Query returned 0 results \(query)")
-
+        guard let firstMatch = try await fetchFirstResult(for: query) else {
+            Self.log.error("No record found for key: \(apiKeyName, privacy: .private)")
             throw FetchKeyError.recordNotFound
+        }
+        Self.log.debug("Found result in CloudKit \(apiKeyName, privacy: .private)")
 
-            func fetchFirstResult() async throws -> Result<CKRecord, any Error>? {
-                do {
-                    return try await database.records(matching: query).matchResults.first?.1
-                } catch let error as CKError {
-                    if error.code == .networkFailure || error.code == .networkUnavailable {
-                        throw FetchKeyError.networkUnavailable
-                    } else {
-                        throw FetchKeyError.cloudKitError(error: error)
-                    }
-                }
-            }
+        let cloudKitRecordForKey: CKRecord
+        switch firstMatch {
+        case let .failure(error):
+            Self.log.error("Error fetching record: \(error.localizedDescription)")
+            throw FetchKeyError.cloudKitError(error: error)
+        case let .success(record):
+            cloudKitRecordForKey = record
         }
 
-        let cloudKitRecordForKey = try await performQueryReturningFirstResult()
-        log.debug("Found API key for \(apiKeyName)")
+        Self.log.debug("Found API key for \(apiKeyName, privacy: .private)")
 
-        let apiKey = try KeyField.key.extract(from: cloudKitRecordForKey)
-        log.debug("Returning API key for: \(apiKeyName)")
+        guard let keyValue = cloudKitRecordForKey["key"] as? String else {
+            throw FetchKeyError.missingField(named: "key")
+        }
+        let apiKey = APIKey(rawValue: keyValue)
+        Self.log.debug("Returning API key for: \(apiKeyName, privacy: .private)")
         return apiKey
     }
 
-    // MARK: - Private
+    // MARK: - Private Helpers
 
     private func queryForKey(_ apiKeyName: APIKeyName) -> CKQuery {
         CKQuery(
             recordType: recordType,
-            predicate: predicateForKey(apiKeyName),
+            predicate: NSPredicate(format: "%K == %@", "name", apiKeyName.rawValue),
         )
     }
 
-    private func predicateForKey(_ apiKeyName: APIKeyName) -> NSPredicate {
-        NSPredicate(
-            format: "\(KeyField.name.rawValue) == %@", argumentArray: [apiKeyName.rawValue],
-        )
+    private func fetchFirstResult(for query: CKQuery) async throws -> Result<CKRecord, any Error>? {
+        do {
+            return try await queryFirstMatch(for: query)
+        } catch let error as CKError {
+            return try await retryOnTransientError(for: query, error: error)
+        }
     }
 
-    private var database: CKDatabase {
-        container.publicCloudDatabase
+    private func retryOnTransientError(
+        for query: CKQuery,
+        error: CKError,
+    ) async throws -> Result<CKRecord, any Error>? {
+        if error.code == .managedAccountRestricted {
+            throw FetchKeyError.cloudKitRestricted
+        }
+        guard isTransientError(error) else {
+            throw FetchKeyError.cloudKitError(error: error)
+        }
+        guard let retryAfter = boundedRetryInterval(from: error) else {
+            throw FetchKeyError.networkUnavailable
+        }
+
+        Self.log.debug("Rate limited, retrying after \(retryAfter)s")
+        try await Task.sleep(for: .seconds(retryAfter))
+
+        do {
+            return try await queryFirstMatch(for: query)
+        } catch let retryError as CKError {
+            if retryError.code == .managedAccountRestricted {
+                throw FetchKeyError.cloudKitRestricted
+            }
+            if isTransientError(retryError) {
+                throw FetchKeyError.networkUnavailable
+            }
+            throw FetchKeyError.cloudKitError(error: retryError)
+        }
+    }
+
+    private func queryFirstMatch(for query: CKQuery) async throws -> Result<CKRecord, any Error>? {
+        try await queryProvider(query)
+    }
+
+    /// Verifies the device can access iCloud before attempting a query.
+    ///
+    /// Guards against restricted accounts (MDM, parental controls) and transient
+    /// network issues so callers get a precise ``FetchKeyError`` rather than
+    /// an opaque `CKError`.
+    private func checkAccountAccess() async throws {
+        let status: CKAccountStatus
+        do {
+            status = try await accountStatusProvider()
+        } catch let error as CKError where error.code == .managedAccountRestricted {
+            throw FetchKeyError.cloudKitRestricted
+        } catch let error as CKError where isTransientError(error) {
+            throw FetchKeyError.networkUnavailable
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            throw FetchKeyError.cloudKitError(error: error)
+        }
+        if status == .restricted {
+            Self.log.error("iCloud access is restricted on this device")
+            throw FetchKeyError.cloudKitRestricted
+        }
+    }
+
+    /// Classifies CloudKit errors as transient when they are recoverable through retry
+    /// or degraded fallback handling.
+    ///
+    /// This is intentionally conservative: only errors that may succeed on a later
+    /// attempt are considered transient so the caller can distinguish permanent failures
+    /// from temporary service/network conditions.
+    private func isTransientError(_ error: CKError) -> Bool {
+        switch error.code {
+        case .networkFailure, .networkUnavailable,
+             .serviceUnavailable, .requestRateLimited,
+             .serverResponseLost, .zoneBusy:
+            true
+        default:
+            false
+        }
+    }
+
+    /// Extracts the server-recommended retry delay from CloudKit's metadata.
+    ///
+    /// A non-nil delay (for example from ``CKErrorRetryAfterKey``) is used to perform
+    /// a single bounded retry and avoid busy-loop behavior under rate limiting.
+    private func retryInterval(from error: CKError) -> TimeInterval? {
+        (error as NSError).userInfo[CKErrorRetryAfterKey] as? TimeInterval
+    }
+
+    private func boundedRetryInterval(from error: CKError) -> TimeInterval? {
+        guard let delay = retryInterval(from: error), delay.isFinite else {
+            return nil
+        }
+        if delay < 0 {
+            return nil
+        }
+        return min(delay, maxRetryDelaySeconds)
     }
 }
+
+// MARK: - KeyProvider
+
+extension CloudKitKeyProvider: KeyProvider {}
