@@ -156,5 +156,5 @@ Note: Backporting loses the safety guarantees and simplicity that motivated the 
 
 ## See Also
 
-- [APIKeyReader](APIKeyReader.md) — Actor-based concurrency model
-- [LocalStorage](LocalStorage.md) — Keychain Security framework usage
+- [Architecture](Architecture.md) — Actor-based concurrency model
+- [KeychainStorage](KeychainStorage.md) — Keychain Security framework usage

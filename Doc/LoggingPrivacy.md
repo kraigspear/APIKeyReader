@@ -11,7 +11,7 @@ APIKeyReader uses os.Logger with privacy annotations to control what data appear
 All logs containing `apiKeyName` use `.private` privacy:
 
 ```swift
-Log.logger.debug("Fetching APIKey: \(apiKeyName, privacy: .private)")
+logger.debug("Fetching APIKey: \(apiKeyName, privacy: .private)")
 ```
 
 **Rationale:**
@@ -55,7 +55,7 @@ Logging is wrapped in `#if DEBUG` blocks:
 
 ```swift
 #if DEBUG
-Log.logger.debug("Fetching APIKey: \(apiKeyName, privacy: .private)")
+logger.debug("Fetching APIKey: \(apiKeyName, privacy: .private)")
 #endif
 ```
 
@@ -72,16 +72,16 @@ This pattern allows verbose debugging without polluting production logs.
 Error messages use `.public` privacy:
 
 ```swift
-Log.logger.error(
-    "Local storage read failed for \(apiKeyName, privacy: .public); falling back to provider: \(String(describing: error), privacy: .public)"
+logger.error(
+    "Local storage read failed for \(apiKeyName, privacy: .private); falling back to provider: \(String(describing: error), privacy: .public)"
 )
 ```
 
-**Why public for errors but sensitive for key names?**
+**Why `.private` for key names but `.public` for errors?**
 
-- **Error types** (e.g., `LoadError.expired`, `FetchKeyError.networkUnavailable`) don't expose secrets
+- **Key names** use `.private` — they may reveal business logic or integration details
+- **Error types** (e.g., `LoadError.expired`, `FetchKeyError.networkUnavailable`) use `.public` — they don't expose secrets
 - **Error descriptions** are already sanitized via `LocalizedError` (no raw key values)
-- **Public logging** ensures crash reports and diagnostics include actionable error information
 
 This balance allows debugging production issues without leaking sensitive data.
 
@@ -102,9 +102,11 @@ The account name is `APIKeyName.rawValue`, which reveals integration details (sa
 The library uses `os.Logger` instead of `print()`:
 
 ```swift
-private enum Log {
-    static let logger = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
-}
+// APIKeyReader.swift (file-scoped)
+private let logger = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
+
+// CloudKitKeyProvider.swift (static property)
+private static let log = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "☁️CloudKit")
 ```
 
 **Benefits:**
@@ -122,13 +124,17 @@ private enum Log {
 Logs use a specific subsystem and category:
 
 ```swift
-os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
+// File-scoped in APIKeyReader.swift:
+private let logger = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
+
+// Static property in CloudKitKeyProvider:
+private static let log = os.Logger(subsystem: "com.spearware.APIKeyReader", category: "☁️CloudKit")
 ```
 
 **Why these values?**
 
 - **Subsystem** (`com.spearware.APIKeyReader`) — Identifies the library in system logs, allowing filtering by package
-- **Category** (`🔑APIKey`) — Groups related logs together and adds a visual identifier in Console.app
+- **Category** (`🔑APIKey` or `☁️CloudKit`) — Groups related logs together and adds a visual identifier in Console.app
 - **Emoji prefix** — Makes logs easy to spot when scanning mixed app/framework logs
 
 This structure supports log aggregation tools (e.g., filtering all APIKeyReader logs) and improves manual debugging.
@@ -138,10 +144,10 @@ This structure supports log aggregation tools (e.g., filtering all APIKeyReader 
 All loggers in the package use `com.spearware.APIKeyReader` as their subsystem, differentiated by category:
 
 ```swift
-// APIKeyReader / LocalStorage / KeychainStorage
+// APIKeyReader.swift, LocalStorage.swift, KeychainStorage.swift
 os.Logger(subsystem: "com.spearware.APIKeyReader", category: "🔑APIKey")
 
-// CloudKitKeyProvider
+// CloudKitKeyProvider.swift
 os.Logger(subsystem: "com.spearware.APIKeyReader", category: "☁️CloudKit")
 ```
 

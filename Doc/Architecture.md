@@ -37,7 +37,7 @@ The storage layer uses protocols (`KeyProvider`, `CachedKeyStorage`) rather than
 API keys were moved from UserDefaults to Keychain (`KeychainStorage`) because:
 
 - **Security best practices** — Keychain data is encrypted at rest and excluded from device backups, reducing exposure if a backup is compromised
-- **Access control** — `SecAccessControl` with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` ensures keys are only readable when the device is unlocked and never sync across devices (appropriate for public CloudKit keys that should be re-fetched per device)
+- **Access control** — `SecAccessControl` with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` ensures keys are available after the first unlock since boot and never sync across devices (appropriate for public CloudKit keys that should be re-fetched per device)
 - **Developer expectations** — Developers expect sensitive credentials to be stored in the Keychain, not in plain text in UserDefaults
 
 Note: Biometric access control is intentionally omitted because these keys originate from a public CloudKit database and are not user secrets.
@@ -181,7 +181,7 @@ graph TD
 | `LocalStorage` | Implements cache using Keychain | Wraps `KeychainStorage` with `SavedAPIKey` encoding/expiry logic |
 | `KeychainStorage` | Low-level Keychain operations | Stateless enum with synchronous Security framework calls and task-local test backend injection |
 | `SavedAPIKey` | Codable wrapper with expiration metadata | Stores key + timestamp + expiry in single keychain entry |
-| `LoadError` | Cache state communication type | Internal to storage layer (`Contains/LocalStorage/Contains/LoadError.swift`), distinguishes expiration from missing/corrupt cache |
+| `LoadError` | Cache state communication type | Internal to storage layer (`Contains/LocalStorage/LoadError.swift`), distinguishes expiration from missing/corrupt cache |
 | `CacheLookupResult` | Cache lookup result | Private to `APIKeyReader`, maps `LoadError` to fetch decisions |
 | `Strings` | Centralized localized messages | Single source of truth for error messages, localization-ready |
 

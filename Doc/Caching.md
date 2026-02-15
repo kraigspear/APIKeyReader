@@ -150,19 +150,21 @@ Clearing a key's cache also removes its storage adapter:
 
 ```swift
 public func clearCache(for apiKeyName: APIKeyName) async {
-    let storage = storageCache[apiKeyName] ?? localStorageFactory(apiKeyName)
-    await storage.clear()
-    storageCache[apiKeyName] = nil  // Remove from cache
+    if let storage = storageCache.removeValue(forKey: apiKeyName) {
+        await storage.clear()
+    } else {
+        await localStorageFactory(apiKeyName).clear()
+    }
 }
 ```
 
 **Why remove the adapter?**
 
+`removeValue(forKey:)` atomically removes and returns the cached adapter. If present, its keychain entry is cleared. If no adapter was cached (e.g., clear called before any fetch), a temporary storage instance clears the keychain entry directly.
+
 After clearing, the next `apiKey(named:)` call will:
 - Create a fresh storage instance
 - Fetch from CloudKit (no cached data)
-
-Keeping the cleared adapter in `storageCache` would be harmless but wastes memory. Removing it allows garbage collection.
 
 ## Cache Lifecycle
 

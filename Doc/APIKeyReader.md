@@ -99,7 +99,7 @@ The Observable conformance provides:
 
 ### Internal Fetch Helpers
 
-`apiKey(named:expiresMinutes:)` coordinates cache reads, transient fallback, and task coordination through small private helper methods.
+`apiKey(named:expiresMinutes:)` coordinates cache reads, transient fallback, and task coordination through private helper methods (`cachedValue`, `taskFor`, `fetchKey`, `storage`).
 
 ```swift
 public func apiKey(
@@ -111,9 +111,9 @@ public func apiKey(
 This pattern keeps related logic together while avoiding:
 - Polluting the actor's method namespace with implementation details
 - Exposing internal helpers that shouldn't be public or even private members
-- Creating unnecessary actor re-entrancy (local functions don't cross actor boundaries)
+- Creating unnecessary actor re-entrancy (private methods on the same actor don't cross actor boundaries)
 
-Local functions have access to the enclosing scope's variables (`expiredKey`, `localStorage`, etc.), reducing parameter passing overhead.
+Each private method has a focused responsibility (cache lookup, task management, key fetching, storage resolution), keeping the public method concise.
 
 ## Usage
 

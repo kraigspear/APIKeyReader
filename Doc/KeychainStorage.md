@@ -35,7 +35,7 @@ Keys are stored with explicit access control:
 ```swift
 let accessControl = SecAccessControlCreateWithFlags(
     nil,
-    kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+    kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
     [],  // No biometric requirements
     &accessControlError
 )
@@ -46,7 +46,7 @@ addQuery[kSecAttrAccessControl as String] = accessControl
 
 | Flag | Effect | Why This Choice |
 |------|--------|-----------------|
-| `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | Readable only when device is unlocked, never syncs | Prevents keys from appearing in iCloud Keychain or device backups |
+| `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` | Readable after first unlock since boot, never syncs | Available for background tasks while preventing iCloud Keychain or backup sync |
 | Empty flags `[]` | No biometric/passcode requirement | Keys originate from public CloudKit database, not user secrets |
 
 **Why no biometric requirement?**
@@ -81,27 +81,6 @@ Checking existence first would require:
 - **First save**: 2 operations (check + add)
 
 The update-then-add pattern optimizes for the common case (cached key being refreshed).
-
-### Why Access Attribute Selection Logic
-
-`preservedAccessAttributes` selects the correct access attribute when working with existing keychain entries:
-
-```swift
-static func preservedAccessAttributes(from attributes: [String: Any]) -> [String: Any] {
-    if let accessControl = attributes[kSecAttrAccessControl as String] {
-        return [kSecAttrAccessControl as String: accessControl]
-    }
-    if let accessible = attributes[kSecAttrAccessible as String] {
-        return [kSecAttrAccessible as String: accessible]
-    }
-    return [:]
-}
-```
-
-**Rationale:**
-
-1. **Mutual exclusivity** — `kSecAttrAccessControl` and `kSecAttrAccessible` cannot coexist in the same keychain item; the code prefers `kSecAttrAccessControl` when both are present
-2. **Correctness** — Callers needing to preserve access semantics during updates can use this to extract the right attribute
 
 ### Why Service-Based Scoping
 

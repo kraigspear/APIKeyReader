@@ -105,7 +105,7 @@ let localStorage = LocalStorage(key: .openWeatherMap)
 
 // Attempt to load cached key
 do {
-    let freshKey = try localStorage.load()
+    let freshKey = try await localStorage.load()
     // Use fresh key
 } catch LoadError.expired(let expiredKey) {
     // Key exists but is expired — attempt refresh from CloudKit
@@ -115,7 +115,7 @@ do {
 }
 
 // Save with 60-minute expiration
-localStorage.save(value: apiKey, expiresMinutes: 60)
+await localStorage.save(value: apiKey, expiresMinutes: 60)
 ```
 
 ## Architecture

@@ -17,6 +17,10 @@ This folder contains design documentation explaining the rationale behind APIKey
 - [Protocols](Protocols.md) — Why KeyProvider and CachedKeyStorage protocols, dependency injection pattern, and Sendable conformance requirements
 - [Strings](Strings.md) — Why centralize error messages, String(localized:) over NSLocalizedString, audience-based comments, and localization workflow
 
+## Testing
+
+- [TestPlan](TestPlan.md) — Manual test scenarios for fresh install, caching, concurrency, and error cases
+
 ## Legacy Documentation
 
 - [APIKeyReader](APIKeyReader.md) — Earlier documentation (superseded by Architecture.md)
