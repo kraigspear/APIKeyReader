@@ -105,14 +105,13 @@ Alternatives considered:
 Concurrent requests for the same key share a single CloudKit fetch:
 
 ```swift
-// APIKeyReader.swift, lines 144-157
-func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
+private func taskFor(_ apiKeyName: APIKeyName) -> Task<APIKey, Error> {
     if let inProgressTask = keyFetchTask[apiKeyName] {
         return inProgressTask  // Reuse existing Task
     }
 
     let newTask = Task {
-        try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
+        try await keyProvider.fetchAPIKey(apiKeyName)
     }
     keyFetchTask[apiKeyName] = newTask
     return newTask

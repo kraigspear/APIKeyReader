@@ -47,23 +47,10 @@ Actor isolation provides:
 
 ### Task Deduplication via Dictionary
 
-Concurrent requests for the same key share a single CloudKit fetch task:
-
-```swift
-private var keyFetchTask: [APIKeyName: Task<APIKey, Error>] = [:]
-
-func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask {
-    if let inProgressTask = keyFetchTask[apiKeyName] {
-        return inProgressTask  // Multiple callers await same Task
-    }
-
-    let newTask = Task {
-        try await apiKeyCloudKit.fetchAPIKey(apiKeyName)
-    }
-    keyFetchTask[apiKeyName] = newTask
-    return newTask
-}
-```
+Concurrent requests for the same key share a single CloudKit fetch task internally.
+The actor keeps a `keyFetchTask` dictionary, so repeated requests for the same key
+while a fetch is in progress attach to the same task instead of launching extra
+CloudKit lookups.
 
 This pattern prevents CloudKit query storms during app launch when multiple views might request the same key simultaneously. Without deduplication:
 
@@ -110,25 +97,23 @@ The Observable conformance provides:
 - Integration with SwiftUI's dependency injection
 - Compatibility with `@Environment` and `@State`
 
-### Local Helper Functions for Cohesion
+### Internal Fetch Helpers
 
-The `apiKey(named:expiresMinutes:)` method uses local function declarations:
+`apiKey(named:expiresMinutes:)` coordinates cache reads, transient fallback, and task coordination through private helper methods (`cachedValue`, `taskFor`, `fetchKey`, `storage`).
 
 ```swift
-public func apiKey(named apiKeyName: APIKeyName, expiresMinutes: Int) async throws -> APIKey {
-    // ... main logic ...
-
-    func taskFor(_ apiKeyName: APIKeyName) -> FetchKeyTask { }
-    func fetchKey(task: Task<APIKey, Error>) async throws -> APIKey { }
-}
+public func apiKey(
+    named apiKeyName: APIKeyName,
+    expiresMinutes: Int,
+) async throws -> APIKey
 ```
 
 This pattern keeps related logic together while avoiding:
 - Polluting the actor's method namespace with implementation details
 - Exposing internal helpers that shouldn't be public or even private members
-- Creating unnecessary actor re-entrancy (local functions don't cross actor boundaries)
+- Creating unnecessary actor re-entrancy (private methods on the same actor don't cross actor boundaries)
 
-Local functions have access to the enclosing scope's variables (`expiredKey`, `localStorage`, etc.), reducing parameter passing overhead.
+Each private method has a focused responsibility (cache lookup, task management, key fetching, storage resolution), keeping the public method concise.
 
 ## Usage
 
@@ -183,6 +168,16 @@ struct WeatherView: View {
                 }
             }
     }
+}
+```
+
+### Cache Clearing
+
+```swift
+@Environment(APIKeyReader.self) private var apiKeyReader
+
+func rotateCredential() async {
+    await apiKeyReader.clearCache(for: .openWeatherMap)
 }
 ```
 

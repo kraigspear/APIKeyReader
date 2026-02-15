@@ -139,6 +139,16 @@ func loadAPIKey() async {
 }
 ```
 
+### Cache Invalidation
+
+```swift
+@Environment(APIKeyReader.self) private var apiKeyReader
+
+func clearCachedKey() async {
+    await apiKeyReader.clearCache(for: .myAPIKey)
+}
+```
+
 ## How It Works
 
 1. When you request an API key, APIKeyReader first checks the local cache

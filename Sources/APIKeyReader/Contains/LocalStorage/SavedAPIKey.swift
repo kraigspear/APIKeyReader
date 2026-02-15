@@ -23,11 +23,8 @@ struct SavedAPIKey: Codable {
     }
 
     var expired: Bool {
-        let minutes = Calendar.current.dateComponents(
-            [.minute],
-            from: updated,
-            to: Date(),
-        ).minute ?? 0
-        return minutes >= expiresMinutes
+        let ageInSeconds = Date().timeIntervalSince(updated)
+        guard ageInSeconds >= 0 else { return false }
+        return ageInSeconds >= TimeInterval(expiresMinutes * 60)
     }
 }
