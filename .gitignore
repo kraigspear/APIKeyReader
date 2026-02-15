@@ -6,3 +6,6 @@ xcuserdata/
 DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 /.claude/settings.local.json
+.cleanup-state
+.tmp-home/
+TestApp/build/
