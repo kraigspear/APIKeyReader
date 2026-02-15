@@ -1,4 +1,5 @@
 import Foundation
+import SpearFoundation
 
 struct SavedAPIKey: Codable {
     let key: APIKey
@@ -23,11 +24,6 @@ struct SavedAPIKey: Codable {
     }
 
     var expired: Bool {
-        let minutes = Calendar.current.dateComponents(
-            [.minute],
-            from: updated,
-            to: Date(),
-        ).minute ?? 0
-        return minutes >= expiresMinutes
+        updated.numberOfMinutesBetween() >= expiresMinutes
     }
 }
