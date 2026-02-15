@@ -82,12 +82,12 @@ enum KeychainStorage {
                 .debug("Keychain save did not find existing entry for account: \(account, privacy: .private), adding")
             var addQuery = query
             addQuery[kSecValueData as String] = data
-            // Formalize access control: device-only, unlocked access. Biometric is intentionally
+            // Formalize access control: device-only, after-first-unlock access. Biometric is intentionally
             // omitted because these are API keys from a public CloudKit database, not user secrets.
             var accessControlError: Unmanaged<CFError>?
             guard let accessControl = SecAccessControlCreateWithFlags(
                 nil,
-                kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                 [], // cleanup-review: empty flags intentional — keys are from a public CloudKit DB, biometric would be security theater.
                 &accessControlError,
             ) else {

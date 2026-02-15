@@ -9,11 +9,11 @@ final class InMemoryKeychainBackend: Sendable {
     }
 
     func save(data: Data, account: String) -> Bool {
-        storage.withLock { $0[account] = data }
+        _ = storage.withLock { $0[account] = data }
         return true
     }
 
     func clear(account: String) {
-        storage.withLock { $0.removeValue(forKey: account) }
+        _ = storage.withLock { $0.removeValue(forKey: account) }
     }
 }
