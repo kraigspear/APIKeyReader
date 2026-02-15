@@ -148,17 +148,4 @@ enum KeychainStorage {
 
     #endif
 
-    /// Selects a valid set of access attributes for SecItemUpdate.
-    ///
-    /// `kSecAttrAccessControl` and `kSecAttrAccessible` are mutually exclusive in updates.
-    /// Prefer access control when available and otherwise preserve accessibility class.
-    static func preservedAccessAttributes(from attributes: [String: Any]) -> [String: Any] {
-        if let accessControl = attributes[kSecAttrAccessControl as String] {
-            return [kSecAttrAccessControl as String: accessControl]
-        }
-        if let accessible = attributes[kSecAttrAccessible as String] {
-            return [kSecAttrAccessible as String: accessible]
-        }
-        return [:]
-    }
 }
