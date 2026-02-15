@@ -1,5 +1,4 @@
 import Foundation
-import SpearFoundation
 
 struct SavedAPIKey: Codable {
     let key: APIKey
@@ -24,6 +23,8 @@ struct SavedAPIKey: Codable {
     }
 
     var expired: Bool {
-        updated.numberOfMinutesBetween() >= expiresMinutes
+        let ageInSeconds = Date().timeIntervalSince(updated)
+        guard ageInSeconds >= 0 else { return false }
+        return ageInSeconds >= TimeInterval(expiresMinutes * 60)
     }
 }

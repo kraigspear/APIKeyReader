@@ -55,6 +55,23 @@ struct SavedAPIKeyTests {
         #expect(expired)
     }
 
+    @Test("is not expired when updated timestamp is in the future")
+    func notExpiredWhenTimestampIsInTheFuture() throws {
+        // Given
+        let expiresMinutes = 10
+        let updated = Date().addingTimeInterval(60)
+        let savedKey = try makeSavedAPIKey(
+            updated: updated,
+            expiresMinutes: expiresMinutes,
+        )
+
+        // When
+        let expired = savedKey.expired
+
+        // Then
+        #expect(expired == false)
+    }
+
     private func makeSavedAPIKey(
         updated: Date,
         expiresMinutes: Int,
