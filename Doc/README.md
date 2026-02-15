@@ -5,6 +5,7 @@ This folder contains design documentation explaining the rationale behind APIKey
 ## Architecture
 
 - [Architecture](Architecture.md) — High-level system design: actor-based coordination, protocol abstraction, error handling strategy, and component responsibilities
+- [Diagrams](Diagrams.md) — Mermaid class diagram and sequence diagrams for core types and runtime flows
 - [PlatformRequirements](PlatformRequirements.md) — Why iOS 26+ / macOS 26+ and Swift 6.2
 
 ## Topics
